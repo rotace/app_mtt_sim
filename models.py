@@ -4,6 +4,25 @@ from scipy.linalg import block_diag
 import sensors
 
 
+def calc_ellipsoidal_gate(model, obs):
+    """Calc Ellipsoidal Gate
+
+        ref) Design and Analysis of Modern Tracking Systems
+                    6.3.2 Ellipsoidal Gates
+
+    Arguments:
+        model {KalmanModel} -- Kalman Model
+        obs {Obs} -- Observation
+    """
+    dy, S = model.residual(obs)
+    detS = np.linalg.det(S)
+    PD = obs.sensor.param["PD"]
+    COEF = (2*np.pi) ** (0.5*len(obs.y))
+    BETA = obs.sensor.param["BNT"] + obs.sensor.param["PFA"] / obs.sensor.param["VC"]
+    GATE = 2 * np.log( PD/(1-PD)/COEF/BETA/np.sqrt(detS) )
+    return (GATE, dy @ np.linalg.inv(S) @ dy, detS)
+
+
 class Obs():
     """ Observation """
 
@@ -21,30 +40,7 @@ class Obs():
 
 
 
-class Model():
-    """ Model Base Class """
-
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def residual(self, obs):
-        # return (dy, S)
-        raise NotImplementedError
-
-    def update(self, obs=None):
-        # how to implement update
-        if obs:
-            # update with observation
-            pass
-        else:
-            # update without observation
-            pass
-
-        raise NotImplementedError
-
-
-
-class KalmanModel(Model):
+class KalmanModel():
     """ Kalman Model
     
         ref) Design and Analysis of Modern Tracking Systems
@@ -96,6 +92,18 @@ class KalmanModel(Model):
         S = self.H @ self.P @ self.H.T + obs.R
         return (dy, S)
 
+    def gaussian_log_likelihood(self, obs):
+        """ Gaussian log Likelihood Function
+        
+        ref) Design and Analysis of Modern Tracking Systems
+                    6.6.2 Extension to JPDA
+        """
+        dy, S = self.residual(obs)
+        log_gij = -0.5 * dy @ np.linalg.inv(S) @ dy
+        log_gij += -0.5 * len(obs.y) * np.log(2*np.pi)
+        log_gij += -np.log( np.sqrt(np.linalg.det(S)) )
+        return log_gij
+
     def _inovate_step(self, R):
         """Inovate Step
         
@@ -129,36 +137,66 @@ class KalmanModel(Model):
 
 
 
-class SimplePolar2D(KalmanModel):
-    """ Simple Polar (R,Theta) Model
+class PDAKalmanModel(KalmanModel):
+    """ PDA Kalman Model
+    
+        ref) Design and Analysis of Modern Tracking Systems
+                    6.6.1 The PDA Method
+                    6.6.2 Extension to JPDA
+    """
+    def update(self, obs_dict):
+        if obs_dict:
+
+            dyy = np.zeros( self.y_dim ).reshape(1,-1)
+            dYY = np.zeros( (self.y_dim, self.y_dim) )
+            R = np.zeros( (self.y_dim, self.y_dim) )
+
+            for obs, ratio in obs_dict.items():
+                if obs:
+                    dy, _ = self.residual(obs)
+                    dyy += ratio * dy
+                    dYY += ratio * dy.T @ dy
+                    R += ratio * obs.R
+                else:
+                    ratio_0 = ratio
+
+            self._inovate_step(R)
+            P0 = ratio_0 * self.P + (1-ratio_0) * (self.P - self.K @ self.H * self.P)
+            self.P = P0 + self.K @ (dYY - dyy.T @ dyy ) @ self.K.T
+            self.x = self.x + self.K @ dyy.T
+            self._predict_step()
+
+        else:
+            self._predict_step()
+
+
+
+class Simple2DModelFactory():
+    """ Simple 2D Model Factory
     
      * Linear Kalman Filter
      * Constant Velocity Model
-     * State Vector x is Polar Coord
-     * Input Vector y is Polar Coord
-     * R and Theta is Independent
-    """
+     * State Vector x is 2D posit/veloc
+     * Input Vector y is 2D posit
+     * 2D(x1,x2) is Independent
 
-    @staticmethod
-    def create_factory(q):
-        return SimplePolar2D(None, q)
+     ex)
+      * Cart Model (cart-x, cart-y), x=(px, py, vx, vy), y=(px, py)
+      * Polar Model (range, theta), x=(pr, pt, vr, vt), y=(pr, pt)
+    """
+    def __init__(self, model, q, pv):
+        self.model = model
+        self.q = q
+        self.pv = pv
 
     def create(self, obs):
-        return SimplePolar2D(obs, self.q)
-
-    def __init__(self, obs, q):
-        
-        if not obs:
-            self.q = q
-            return
-
-        dT = obs.sensor.param["time_interval"]
+        dT = obs.sensor.param["dT"]
         
         x = np.array(
             [obs.y[0], obs.y[1], 0.0, 0.0]
         )
 
-        P = block_diag(obs.R, np.eye(2) * 0.1)
+        P = block_diag(obs.R, np.eye(2) * self.pv)
         
         F = np.array(
             [[1.0, 0.0, dT, 0.0],
@@ -177,6 +215,6 @@ class SimplePolar2D(KalmanModel):
             [0, dT**3/3, 0, dT**2/2],
             [dT**2/2, 0, dT, 0],
             [0, dT**2/2, 0, dT]]
-        ) * q
+        ) * self.q
         
-        super().__init__(x, F, H, P, Q, is_nonlinear=False)
+        return self.model(x, F, H, P, Q, is_nonlinear=False)

@@ -3,6 +3,7 @@ import time
 import queue
 import numpy as np
 
+
 def calc_best_assignment_by_auction( score_matrix, is_maximized=True ):
     """Calculate Best Assignment by Auction Method
 
@@ -161,11 +162,17 @@ def calc_n_best_assignments_by_murty( score_matrix, ignore_thresh , n_best, is_m
     for nth in range(n_best-1):
         # nth best solution
         sol_sort = sorted( list(sol_dict.values()), key=lambda x:x["t_score"] )
+        if is_maximized:
+            sol_sort = sol_sort[::-1]
+        if len(sol_sort) <= nth:
+            n_best = len(sol_sort)
+            break
         solution = sol_sort[nth]
         calc_nth_best_assignment_with_constraints( solution )
 
-
-    sol_sort = sorted( list(sol_dict.values()), key=lambda x:x["t_score"] )    
+    sol_sort = sorted( list(sol_dict.values()), key=lambda x:x["t_score"] )
+    if is_maximized:
+        sol_sort = sol_sort[::-1]
     sol_ret = []
     for sol in sol_sort[:n_best]:
         sol_ret.append( (np.array( sol["scores"] ), np.array( sol["assign"] )) )
