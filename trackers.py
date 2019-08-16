@@ -1,13 +1,15 @@
+import copy
 import numpy as np
 
 import utils
+
+IGNORE_THRESH = -1000000
 
 
 class BaseTracker():
     """ Tracker Base Class """
 
     def __init__(self, sensor, model_factory, track_factory):
-        self.trk_list = []
         self.sensor = sensor
         self.model_factory = model_factory
         self.track_factory = track_factory
@@ -16,6 +18,29 @@ class BaseTracker():
     def update(self):
         self.count += 1
         self.sensor.update()
+
+    def _calc_score_matrix(self, hyp, obs_list):
+        # init
+        M = len(hyp.trk_list)
+        N = len(obs_list)
+        S = np.empty( (M + N, N) )
+        S.fill(IGNORE_THRESH)
+        
+        # set new or false target score
+        S[range(M, M + N), range(N)] = [
+            self.track_factory.calc_init_score(obs)
+            for obs in obs_list
+        ]
+        
+        # set match score
+        for i, trk in enumerate(hyp.trk_list):
+            S[i, range(N)] = [
+                trk.calc_match_score(obs)
+                if trk.is_in_gate(obs) else IGNORE_THRESH
+                for obs in obs_list
+            ]
+        
+        return S
 
     def register_scan(self, obs_list):
         raise NotImplementedError
@@ -29,10 +54,16 @@ class GNN(BaseTracker):
         ref) Design and Analysis of Modern Tracking Systems
                     6.4 Global Nearest Neighbor Method
     """
+    def __init__(self, sensor, model_factory, track_factory):
+        super().__init__(
+            sensor=sensor,
+            model_factory=model_factory,
+            track_factory=track_factory
+        )
+        self.trk_list = []
 
     def register_scan(self, obs_list):
         self.update()
-        ignore_thresh = -1000000
 
         # single sensor track
         for obs in obs_list:
@@ -44,31 +75,16 @@ class GNN(BaseTracker):
         # init
         M = len(self.trk_list)
         N = len(obs_list)
-        S = np.empty( (M + N, N) )
-        S.fill(ignore_thresh)
-        
-        # set new or false target score
-        S[range(M, M + N), range(N)] = [
-            self.track_factory.calc_init_score(obs)
-            for obs in obs_list
-        ]
-        
-        # set match score
-        for i, trk in enumerate(self.trk_list):
-            S[i, range(N)] = [
-                trk.calc_match_score(obs)
-                if trk.is_in_gate(obs) else ignore_thresh
-                for obs in obs_list
-            ]
+        S = self._calc_score_matrix(self, obs_list)
 
         #---- calc association
 
         _, assign = utils.calc_best_assignment_by_auction(S)
         unassign = set(range(M)) - set(assign)
 
-        print(S)
-        print(assign)
-        print(unassign)
+        # print(S)
+        # print(assign)
+        # print(unassign)
 
         #---- update trackfile
 
@@ -95,9 +111,16 @@ class JPDA(BaseTracker):
         ref) Design and Analysis of Modern Tracking Systems
                     6.6 The All-Neighbors Data Association Approach
     """
+    def __init__(self, sensor, model_factory, track_factory):
+        super().__init__(
+            sensor=sensor,
+            model_factory=model_factory,
+            track_factory=track_factory
+        )
+        self.trk_list = []
+
     def register_scan(self, obs_list):
         self.update()
-        ignore_thresh = -1000000
 
         # single sensor track
         for obs in obs_list:
@@ -109,25 +132,10 @@ class JPDA(BaseTracker):
         # init
         M = len(self.trk_list)
         N = len(obs_list)
-        S = np.empty( (M + N, N) )
-        S.fill(ignore_thresh)
-        
-        # set new or false target score
-        S[range(M, M + N), range(N)] = [
-            self.track_factory.calc_init_score(obs)
-            for obs in obs_list
-        ]
-        
-        # set match score
-        for i, trk in enumerate(self.trk_list):
-            S[i, range(N)] = [
-                trk.calc_match_score(obs)
-                if trk.is_in_gate(obs) else ignore_thresh
-                for obs in obs_list
-            ]
+        S = self._calc_score_matrix(self, obs_list)
 
         #---- calc association
-        assign_idx_hyp_list = utils.calc_n_best_assignments_by_murty(S, ignore_thresh, 10)
+        assign_idx_hyp_list = utils.calc_n_best_assignments_by_murty(S, IGNORE_THRESH, 10)
 
         hyp_assign_dict_list = list()
         all_assign_dict = {}
@@ -192,10 +200,87 @@ class JPDA(BaseTracker):
 
 
 class MHT(BaseTracker):
-    """Calculate Association of Observations by MHT Method
+    """Calculate Association of Observations by conventional MHT Method
 
         ref) Design and Analysis of Modern Tracking Systems
                     6.7 Multiple Hypothesis Tracking
+    """
+    class Hypothesis():
+        def __init__(self, trk_list):
+            self.trk_list = trk_list
+
+        def create(self):
+            return copy.deepcopy(self)
+
+    def __init__(self, sensor, model_factory, track_factory):
+        super().__init__(
+            sensor=sensor,
+            model_factory=model_factory,
+            track_factory=track_factory
+        )
+        self.hyp_list = []
+
+    def register_scan(self, obs_list):
+        self.update()
+
+        # single sensor track
+        for obs in obs_list:
+            if not obs.sensor:
+                obs.sensor = self.sensor
+
+        if not self.hyp_list:
+            self.hyp_list.append(self.Hypothesis(trk_list=[]))
+
+        # TODO implement fast algorithm (p.366)
+        new_hyp_list = []
+        for hyp in self.hyp_list:
+            S = self._calc_score_matrix(hyp, obs_list)
+            new_hyp_list += [
+                (scores, assign, hyp)
+                for scores, assign
+                in utils.calc_n_best_assignments_by_murty(S, IGNORE_THRESH, 10)
+            ]
+
+        new_hyp_sort = sorted( new_hyp_list, key=lambda x:x[0].sum() )[::-1]
+
+        # limit hypothesis
+        if len(new_hyp_sort)>10:
+            new_hyp_sort = new_hyp_list[:10]
+
+        child_hyp_list = []
+        for _, assign, parent_hyp in new_hyp_sort:
+
+            M = len(parent_hyp.trk_list)            
+            unassign = set(range(M)) - set(assign)
+
+            child_hyp = parent_hyp.create()
+            for j_obs, i_trk in enumerate(assign):
+                if i_trk < M:
+                    # update trackfile with observation
+                    child_hyp.trk_list[i_trk].assign( obs_list[j_obs] )
+
+                else:
+                    # create trackfile
+                    child_hyp.trk_list.append( self.track_factory.create( obs_list[j_obs], self) )
+
+            # update trackfile without observation
+            for i_trk in unassign:
+                child_hyp.trk_list[i_trk].unassign()
+
+            #---- track confirmation and deletion
+            child_hyp_list.append(child_hyp)
+
+        self.hyp_list = child_hyp_list
+
+
+
+
+class TOMHT(BaseTracker):
+    """Calculate Association of Observations by track-oriented MHT Method
+
+        ref) Design and Analysis of Modern Tracking Systems
+                    7. Advanced Methods for MTT Data Association
                     16. Multiple Hypothesis Tracking System Design
     """
+    # TODO need to implement MTT multiscan data association in utils module
     pass
