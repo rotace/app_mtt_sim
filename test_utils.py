@@ -5,6 +5,11 @@ import numpy as np
 class TestUtils(unittest.TestCase):
     
     def test_calc_best_assignment_by_auction(self):
+        """Calculate Best Assignment by Auction Method
+
+            ref) Design and Analysis of Modern Tracking Systems
+                        6.5.1 The Auction Algorithm
+        """
 
         arg = np.array(
             [[1, 10],
@@ -27,8 +32,29 @@ class TestUtils(unittest.TestCase):
         actual = utils.calc_best_assignment_by_auction( arg, False )
         np.testing.assert_almost_equal(actual, expected)
 
+        # sample (minimize)
+        arg = np.array(
+            [
+                [-6.8, -18, -14.8],
+                [-11.1, -9, -16.7]
+            ]
+        ).T
+        expected = (
+            np.array([-18, -16.7]),
+            np.array([1, 2])
+        )
+        actual = utils.calc_best_assignment_by_auction( arg, False )
+        np.testing.assert_almost_equal(actual, expected)
+
+
 
     def test_calc_n_best_assignments_by_murty(self):
+        """Calculate N-Best Assignments by Murty Method
+
+            ref) Design and Analysis of Modern Tracking Systems
+                        6.5.2 N-Best Solutions to the Assignment Problem
+        """
+
         # infinite cost
         X = 10000000
 
@@ -50,6 +76,161 @@ class TestUtils(unittest.TestCase):
         )
         actual = utils.calc_n_best_assignments_by_murty( arg, X, 4, False )
         np.testing.assert_almost_equal(actual, expected)
+
+
+
+    def test_calc_multidimensional_assignment(self ):
+        """Calculate Multidimensional  Assignment ( Multiple Scans, Multiple Sensors )
+
+            This method is based on
+                        * Morefield's method
+                        * Formula of data association over multiple scans
+                        * Lagrangian Relaxation
+
+            ref) Design and Analysis of Modern Tracking Systems
+                        7.2 Integer Programmin Approach (Morefield's Method)
+                        7.3 Multidimensional Assignment Approach
+        """
+
+    # Table 7.4
+    multi_assign = np.array(
+        [
+            [0,1,1],
+            [0,2,1],
+            [0,2,2],
+            [1,0,1],
+            [1,0,2],
+            [1,1,0],
+            [1,2,0],
+            [1,1,1],
+            [1,1,2],
+            [1,2,1],
+            [1,2,2],
+            [2,0,1],
+            [2,0,2],
+            [2,1,0],
+            [2,2,0],
+            [2,1,2],
+            [2,2,1],
+            [2,2,2],
+        ]
+    )
+
+    # Table 7.4
+    multi_score = np.array(
+        [
+            10.2,
+            4.7,
+            5.5,
+            6.8,
+            5.2,
+            6.8,
+            10.9,
+            18,
+            14.8,
+            17,
+            9.9,
+            13.2,
+            10.6,
+            4.5,
+            11.1,
+            14.1,
+            9,
+            16.7,
+        ]
+    )
+    
+    i_max, j_max = multi_assign.shape
+    M = multi_assign.max(axis=0)
+    C = -multi_score
+    U = np.zeros( ( M[2]+1, ) )
+
+    # First Iteration
+    D, T = utils._calc_d_t( multi_assign, C, M, U )
+    Q, V, G, _ = utils._calc_q_v_g_t( multi_assign, C, M, U, D, T)
+    Qmax=Q
+    Vmin=V
+    U = utils._update_u( U, Qmax, Vmin, G )
+
+    # Table 7.5
+    expected = np.array(
+        [
+            [0, -10.2, -5.5],
+            [-6.8, -18, -17],
+            [-13.2, -14.1, -16.7]
+        ]
+    )
+    np.testing.assert_almost_equal(D, expected)
+    np.testing.assert_almost_equal(Q, -40.4)
+    np.testing.assert_almost_equal(V, -31.7)
+    np.testing.assert_almost_equal(G, [1, -2, 1])
+    np.testing.assert_almost_equal(U, [0, -3.48, 1.74])
+
+    # Second Iteration
+    D, T = utils._calc_d_t( multi_assign, C, M, U )
+    Q, V, G, T = utils._calc_q_v_g_t( multi_assign, C, M, U, D, T)
+    Qmax=max([Qmax, Q])
+    Vmin=min([Vmin, V])
+    U = utils._update_u( U, Qmax, Vmin, G )
+
+    # Table 7.6
+    expected = np.array(
+        [
+            [-1.74, -6.72, -7.24],
+            [-6.94, -16.54, -13.52],
+            [-12.34, -15.84, -18.44]
+        ]
+    )
+    np.testing.assert_almost_equal(D, expected)
+    np.testing.assert_almost_equal(Q, -38.46)
+    np.testing.assert_almost_equal(V, -34.7)
+    np.testing.assert_almost_equal(T, [7, 17])
+    np.testing.assert_almost_equal(G, [1, 1, -1])
+    np.testing.assert_almost_equal(U, [0, -1.60, -0.14])
+
+    # Third Iteration
+    D, T = utils._calc_d_t( multi_assign, C, M, U )
+    Q, V, G, _ = utils._calc_q_v_g_t( multi_assign, C, M, U, D, T)
+    Qmax=max([Qmax, Q])
+    Vmin=min([Vmin, V])
+    U = utils._update_u( U, Qmax, Vmin, G )
+
+    np.testing.assert_almost_equal(Qmax, -37.34)
+
+    #  4th Iteration
+    D, T = utils._calc_d_t( multi_assign, C, M, U )
+    Q, V, G, _ = utils._calc_q_v_g_t( multi_assign, C, M, U, D, T)
+    Qmax=max([Qmax, Q])
+    Vmin=min([Vmin, V])
+    U = utils._update_u( U, Qmax, Vmin, G )
+
+    np.testing.assert_almost_equal(Qmax, -35.144)
+
+    #  5th Iteration
+    D, T = utils._calc_d_t( multi_assign, C, M, U )
+    Q, V, G, _ = utils._calc_q_v_g_t( multi_assign, C, M, U, D, T)
+    Qmax=max([Qmax, Q])
+    Vmin=min([Vmin, V])
+    U = utils._update_u( U, Qmax, Vmin, G )
+
+    np.testing.assert_almost_equal(Qmax, -35.144)
+
+    #  6th Iteration
+    D, T = utils._calc_d_t( multi_assign, C, M, U )
+    Q, V, G, _ = utils._calc_q_v_g_t( multi_assign, C, M, U, D, T)
+    Qmax=max([Qmax, Q])
+    Vmin=min([Vmin, V])
+    U = utils._update_u( U, Qmax, Vmin, G )
+
+    np.testing.assert_almost_equal(Qmax, -34.922)
+
+
+    V, T = utils.calc_multidimensional_assignment( multi_assign, multi_score )
+
+    np.testing.assert_almost_equal(T, [7, 17])
+    np.testing.assert_almost_equal(V, -34.7)
+    np.testing.assert_almost_equal(multi_score[T].sum(), 34.7)
+    
 
 
 if __name__ == "__main__":

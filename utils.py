@@ -4,7 +4,7 @@ import queue
 import numpy as np
 
 
-def calc_best_assignment_by_auction( score_matrix, is_maximized=True ):
+def calc_best_assignment_by_auction( score_matrix, is_maximized=True , is_verbosed=False):
     """Calculate Best Assignment by Auction Method
 
         ref) Design and Analysis of Modern Tracking Systems
@@ -23,6 +23,11 @@ def calc_best_assignment_by_auction( score_matrix, is_maximized=True ):
     # i_max: current tracks(M) + new tracks(N)
     # j_max: observations(N)
     i_max, j_max = score_matrix.shape
+    
+    # supported only i_max >= j_max
+    # if i_max < j_max, transpose matrix
+    assert i_max >= j_max
+
     prices_trk = np.zeros(i_max)
     assign_trk = -np.ones(i_max, int)
     eps = 0.2
@@ -52,11 +57,12 @@ def calc_best_assignment_by_auction( score_matrix, is_maximized=True ):
         assign_trk[i_trk1] = j_obs
         prices_trk[i_trk1] += eps + abs(prices_trk_j[i_trk1]-prices_trk_j[i_trk2])
 
-        # print("qsize:"+str(obs_queue.qsize()))
-        # print("j_obs:"+str(j_obs))
-        # print("assign_trk:"+str(assign_trk))
-        # print("prices_trk:"+str(prices_trk))
-        # time.sleep(1)
+        if is_verbosed:
+            print("qsize:"+str(obs_queue.qsize()))
+            print("j_obs:"+str(j_obs))
+            print("assign_trk:"+str(assign_trk))
+            print("prices_trk:"+str(prices_trk))
+            time.sleep(1)
 
     scores_obs = np.zeros(j_max)
     assign_obs = np.zeros(j_max, int)
@@ -179,3 +185,133 @@ def calc_n_best_assignments_by_murty( score_matrix, ignore_thresh , n_best, is_m
         # print(sol)
 
     return sol_ret
+
+
+    
+
+def _calc_d_t( multi_assign, C, M, U ):
+    # D(i1,i2) : cost
+    # T(i1,i2) : Trk No. of min cost
+    D = np.zeros( (M[0]+1, M[1]+1) )
+    T = np.zeros( (M[0]+1, M[1]+1), int )
+    D[:,1:] = 1000 # unallowed solution
+    D[0, 0] = min(-U)
+    T[:] = -1
+    for i in range(multi_assign.shape[0]):
+        i1 = multi_assign[i, 0]
+        i2 = multi_assign[i, 1]
+        i3 = multi_assign[i, 2]
+        Di = C[i] - U[i3]
+        if D[i1, i2] > Di:
+            D[i1, i2] = Di
+            T[i1, i2] = i
+
+    return (D, T)
+
+def _calc_q_v_g_t( multi_assign, C, M, U, D, T ):
+    
+    if D.shape[0] >= D.shape[1]:
+        Q, assign = calc_best_assignment_by_auction( D, False )
+        track_list = [ T[i,j] for j,i in enumerate(assign) if T[i,j] >= 0 ]
+    else:
+        Q, assign = calc_best_assignment_by_auction( D.T, False )
+        track_list = [ T[i,j] for i,j in enumerate(assign) if T[i,j] >= 0 ]
+    
+    Q = Q.sum() + U.sum()
+
+    G = np.ones( ( M[2]+1, ) )
+    for k in track_list:
+        dual_i3 = multi_assign[k, 2]
+        G[dual_i3] -= 1
+
+    # D(i1-i2, i3) : cost
+    D = np.zeros( (len(track_list), M[2]+1) )
+    T = np.zeros( (len(track_list), M[2]+1), int )
+    D[:,1:] = 1000 # unallowed solution
+    for i in range(multi_assign.shape[0]):
+        i1 = multi_assign[i, 0]
+        i2 = multi_assign[i, 1]
+        i3 = multi_assign[i, 2]
+        for j, k in enumerate(track_list):
+            dual_i1 = multi_assign[k, 0]
+            dual_i2 = multi_assign[k, 1]
+            if i1 == dual_i1 and i2 == dual_i2:
+                D[j, i3] = C[i]
+                T[j, i3] = i
+
+    if D.shape[0] >= D.shape[1]:
+        V, assign = calc_best_assignment_by_auction( D, False )
+        track_list = [ T[i,j] for j,i in enumerate(assign) if T[i,j] >= 0 ]
+    else:
+        V, assign = calc_best_assignment_by_auction( D.T, False )
+        track_list = [ T[i,j] for i,j in enumerate(assign) if T[i,j] >= 0 ]
+        
+    V = V.sum()
+
+    return (Q, V, G, track_list)
+
+def _update_u( U, Q, V, G ):
+    ca = (V-Q)/np.power(G[1:],2).sum()
+    U[1:] += ca * G[1:]
+
+    return U
+
+def calc_multidimensional_assignment( multi_assign, multi_score,  is_maximized=True ):
+    """Calculate Multidimensional  Assignment ( Multiple Scans, Multiple Sensors )
+
+        This method is based on
+                    * Morefield's method
+                    * Formula of data association over multiple scans
+                    * Lagrangian Relaxation
+
+        ref) Design and Analysis of Modern Tracking Systems
+                    7.2 Integer Programmin Approach (Morefield's Method)
+                    7.3 Multidimensional Assignment Approach
+
+    Arguments:
+        multi_assign {numpy.ndarray} -- A( I, J )
+        multi_score {numpy.ndarray} -- S( I )
+
+        I : Trk No.
+        J : Scan No.
+        A(i, j) : Obs No. assigned at Trk(i) of Scan(j)
+
+    Keyword Arguments:
+        is_maximized {bool} -- maximize  score or not (default: {True})
+
+    """
+
+    assert multi_score.shape == (multi_assign.shape[0], )
+
+    # obs num of each scans
+    M = multi_assign.max(axis=0)
+
+    # cost
+    if is_maximized:
+        C = -multi_score
+    else:
+        C = multi_score
+
+    # lagrange multipliers
+    U = np.zeros( ( M[2]+1, ) )
+    Qmax=-100
+    Vmin=-10
+    itr=0
+
+    # Iteration
+    while (Vmin-Qmax)/abs(Qmax) > 0.01 or itr>100:
+        D, T = _calc_d_t( multi_assign, C, M, U )
+        Q, V, G, T = _calc_q_v_g_t( multi_assign, C, M, U, D, T)
+        if itr==0:
+            Qmax=Q
+            Vmin=V
+            Tmin=T
+        else:
+            Qmax=max([Qmax, Q])
+            if Vmin>V:
+                Vmin=V
+                Tmin=T
+        U = _update_u( U, Qmax, Vmin, G )
+        itr+=1
+
+    return (Vmin, Tmin)
