@@ -2,6 +2,8 @@ import unittest
 import utils
 import numpy as np
 
+np.set_printoptions(suppress=True)
+
 class TestUtils(unittest.TestCase):
     
     def test_calc_best_assignment_by_auction(self):
@@ -32,7 +34,7 @@ class TestUtils(unittest.TestCase):
         actual = utils.calc_best_assignment_by_auction( arg, False )
         np.testing.assert_almost_equal(actual, expected)
 
-        # sample (minimize)
+        # sample 1 (minimize)
         arg = np.array(
             [
                 [-6.8, -18, -14.8],
@@ -86,8 +88,6 @@ class TestUtils(unittest.TestCase):
                     7.3.2 3D Application of Lagrangian Relaxation
         """
 
-        solver = utils.MultiAssignmentSolver()
-
         # Table 7.4
         multi_assign = np.array(
             [
@@ -135,18 +135,20 @@ class TestUtils(unittest.TestCase):
                 16.7,
             ]
         )
+
+        solver = utils.MultiAssignmentSolver(multi_assign, -multi_score)
+        np.testing.assert_almost_equal(solver._get_u_idx(1,2), 0)
+        np.testing.assert_almost_equal(solver._get_u_idx(2,2), 1)
         
-        M = multi_assign.max(axis=0)
-        C = -multi_score
-        U = np.zeros( ( M[2]+1, ) )
+        # lagrange multipliers
+        U = solver._get_u_init()
 
         # First Iteration
-        Q, T = solver._calc_q(multi_assign, C, M, U)
-        G = solver._calc_g( multi_assign, T, M)
-        V, T = solver._calc_v( multi_assign, T, C, M)
+        Q, Tq , U = solver._calc_q(U)
+        V, Tv = solver._calc_v(Tq)
         Qmax=Q
         Vmin=V
-        U = solver._update_u( U, Qmax, Vmin, G )
+        U = solver._update_u( U, Qmax, Vmin, Tq )
 
         # Table 7.5
         expected = np.array(
@@ -156,19 +158,19 @@ class TestUtils(unittest.TestCase):
                 [-13.2, -14.1, -16.7]
             ]
         )
-        np.testing.assert_almost_equal(solver.D, expected)
+        np.testing.assert_almost_equal(solver.Dq, expected)
         np.testing.assert_almost_equal(Q, -40.4)
+        np.testing.assert_almost_equal(Tq, [11, 0, 9])
         np.testing.assert_almost_equal(V, -31.7)
-        np.testing.assert_almost_equal(G, [1, -2, 1])
-        np.testing.assert_almost_equal(U, [0, -3.48, 1.74])
+        np.testing.assert_almost_equal(solver.G[-2:], [-2, 1])
+        np.testing.assert_almost_equal(U[-2:], [-3.48, 1.74])
 
         # Second Iteration
-        Q, T = solver._calc_q(multi_assign, C, M, U)
-        G = solver._calc_g( multi_assign, T, M)
-        V, T = solver._calc_v( multi_assign, T, C, M)
+        Q, Tq , U = solver._calc_q(U)
+        V, Tv = solver._calc_v(Tq)
         Qmax=max([Qmax, Q])
         Vmin=min([Vmin, V])
-        U = solver._update_u( U, Qmax, Vmin, G )
+        U = solver._update_u( U, Qmax, Vmin, Tq )
 
         # Table 7.6
         expected = np.array(
@@ -178,66 +180,111 @@ class TestUtils(unittest.TestCase):
                 [-12.34, -15.84, -18.44]
             ]
         )
-        np.testing.assert_almost_equal(solver.D, expected)
+        np.testing.assert_almost_equal(solver.Dq, expected)
         np.testing.assert_almost_equal(Q, -38.46)
+        np.testing.assert_almost_equal(Tq, [8, 17])
         np.testing.assert_almost_equal(V, -34.7)
-        np.testing.assert_almost_equal(T, [7, 17])
-        np.testing.assert_almost_equal(G, [1, 1, -1])
-        np.testing.assert_almost_equal(U, [0, -1.60, -0.14])
+        np.testing.assert_almost_equal(Tv, [7, 17])
+        np.testing.assert_almost_equal(solver.G[-2:], [1, -1])
+        np.testing.assert_almost_equal(U[-2:], [-1.60, -0.14])
 
         # Third Iteration
-        Q, T = solver._calc_q(multi_assign, C, M, U)
-        G = solver._calc_g( multi_assign, T, M)
-        V, T = solver._calc_v( multi_assign, T, C, M)
+        Q, Tq , U = solver._calc_q(U)
+        V, Tv = solver._calc_v(Tq)
         Qmax=max([Qmax, Q])
         Vmin=min([Vmin, V])
-        U = solver._update_u( U, Qmax, Vmin, G )
+        U = solver._update_u( U, Qmax, Vmin, Tq )
 
         np.testing.assert_almost_equal(Qmax, -37.34)
 
         #  4th Iteration
-        Q, T = solver._calc_q(multi_assign, C, M, U)
-        G = solver._calc_g( multi_assign, T, M)
-        V, T = solver._calc_v( multi_assign, T, C, M)
+        Q, Tq , U = solver._calc_q(U)
+        V, Tv = solver._calc_v(Tq)
         Qmax=max([Qmax, Q])
         Vmin=min([Vmin, V])
-        U = solver._update_u( U, Qmax, Vmin, G )
+        U = solver._update_u( U, Qmax, Vmin, Tq )
 
         np.testing.assert_almost_equal(Qmax, -35.144)
 
         #  5th Iteration
-        Q, T = solver._calc_q(multi_assign, C, M, U)
-        G = solver._calc_g( multi_assign, T, M)
-        V, T = solver._calc_v( multi_assign, T, C, M)
+        Q, Tq , U = solver._calc_q(U)
+        V, Tv = solver._calc_v(Tq)
         Qmax=max([Qmax, Q])
         Vmin=min([Vmin, V])
-        U = solver._update_u( U, Qmax, Vmin, G )
+        U = solver._update_u( U, Qmax, Vmin, Tq )
 
         np.testing.assert_almost_equal(Qmax, -35.144)
 
         #  6th Iteration
-        Q, T = solver._calc_q(multi_assign, C, M, U)
-        G = solver._calc_g( multi_assign, T, M)
-        V, T = solver._calc_v( multi_assign, T, C, M)
+        Q, Tq , U = solver._calc_q(U)
+        V, Tv = solver._calc_v(Tq)
         Qmax=max([Qmax, Q])
         Vmin=min([Vmin, V])
-        U = solver._update_u( U, Qmax, Vmin, G )
+        U = solver._update_u( U, Qmax, Vmin, Tq )
 
         np.testing.assert_almost_equal(Qmax, -34.922)
 
-
-        V, T = solver.calc_3dimensional_assignment( multi_assign, multi_score )
-
+        # unabled NSO
+        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_score )
         np.testing.assert_almost_equal(T, [7, 17])
         np.testing.assert_almost_equal(V, -34.7)
         np.testing.assert_almost_equal(multi_score[T].sum(), 34.7)
-    
+        np.testing.assert_almost_equal(is_valid, True)
 
-        V, T = solver.calc_multidimensional_assignment( multi_assign, multi_score )
+        # enabled NSO
+        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_score, True )
+        np.testing.assert_almost_equal(T, [7, 17])
+        np.testing.assert_almost_equal(V, -34.7)
+        np.testing.assert_almost_equal(multi_score[T].sum(), 34.7)
+        np.testing.assert_almost_equal(is_valid, True)
 
-        # np.testing.assert_almost_equal(T, [7, 17])
-        # np.testing.assert_almost_equal(V, -34.7)
-        # np.testing.assert_almost_equal(multi_score[T].sum(), 34.7)
+
+        # unstable case
+        multi_assign = np.array(
+            [
+                [0,1,1,0],
+                [0,2,1,0],
+                [0,2,2,0],
+                [1,0,1,0],
+                [1,0,2,0],
+                [1,1,0,0],
+                [1,2,0,0],
+                [1,1,1,1],
+                [1,1,2,0],
+                [1,2,1,0],
+                [1,2,2,0],
+                [2,0,1,0],
+                [2,0,2,0],
+                [2,1,0,0],
+                [2,2,0,0],
+                [2,1,2,0],
+                [2,2,1,0],
+                [2,2,2,2],
+            ]
+        )
+
+        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_score, True, False )
+        np.testing.assert_almost_equal(is_valid, False) # unstable case do not satisfy constraints
+
+        # stable case
+        multi_assign = np.array(
+            [
+                [0,1,1,0],
+                [1,1,1,1],
+                [1,1,2,0],
+                [2,2,2,2],
+            ]
+        )
+        multi_score = np.array(
+            [
+                10.2,
+                17,
+                9.9,
+                16.7,
+            ]
+        )
+        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_score, True, False )
+        np.testing.assert_almost_equal(is_valid, True)
 
 
 if __name__ == "__main__":

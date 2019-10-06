@@ -190,6 +190,78 @@ def calc_n_best_assignments_by_murty( score_matrix, ignore_thresh , n_best, is_m
 
 
 
+def calc_multidimensional_assignment(
+    multi_assign,
+    multi_score,
+    is_NSO_enabled=False,
+    is_verbosed=False,
+    is_maximized=True
+):
+    """Calculate Multidimensional  Assignment ( Multiple Scans, Multiple Sensors )
+    
+    Arguments:
+        multi_assign {numpy.ndarray} -- A( I, J )
+        multi_score {numpy.ndarray} -- S( I )
+
+        I : Track No.
+        J : Scan No.
+        A(i, j) : Obs No. assigned at Track(i) of Scan(j)
+
+    Keyword Arguments:
+        is_maximized {bool} -- maximize  score or not (default: {True})
+
+    """
+
+    assert multi_score.shape == (multi_assign.shape[0], )
+
+    # cost
+    if is_maximized:
+        solver = MultiAssignmentSolver(multi_assign, -multi_score, is_NSO_enabled)
+    else:
+        solver = MultiAssignmentSolver(multi_assign, multi_score, is_NSO_enabled)
+
+    # lagrange multipliers
+    U = solver._get_u_init()
+
+    # initialize
+    Qmax=-100
+    Vmin=-10
+    itr=0
+
+    # Iteration
+    while (Vmin-Qmax)/abs(Qmax) > 0.01 and itr<20:
+        Q, Tq , U = solver._calc_q(U)
+        V, Tv = solver._calc_v(Tq)
+        if itr==0:
+            Qmax=Q
+            Vmin=V
+            Tmin=Tv
+        else:
+            Qmax=max([Qmax, Q])
+            if Vmin>V:
+                Vmin=V
+                Tmin=Tv
+        U = solver._update_u( U, Qmax, Vmin, Tq )
+
+        if is_verbosed:
+            print(itr,"eps, Qmax, Vmin" , np.array([(Vmin-Qmax)/abs(Qmax), Qmax, Vmin]))
+            print(itr,"L, Qitr, Vitr" , np.array([(solver.G*U).sum(), Q, V]))
+            print("--  G: ", solver.G)
+            print("--  U: ", U)
+            for i in Tmin:
+                print("-->", multi_assign[i,:])
+        itr+=1
+
+    # check validation
+    is_valid = True
+    if (solver._calc_g(Tv)**2).sum() != 0:
+        # solution do not satisfy constraints
+        # there are some obs that is duplicated or not used
+        is_valid = False
+
+    return (Vmin, Tmin, is_valid)
+
+
 class MultiAssignmentSolver:
     """Multidimensional  Assignment Solver
 
@@ -202,23 +274,76 @@ class MultiAssignmentSolver:
                     7.2 Integer Programmin Approach (Morefield's Method)
                     7.3 Multidimensional Assignment Approach
     """
+    def __init__(self, multi_assign, multi_cost, is_NSO_enabled=False):
+        # assign
+        self.A = multi_assign
+        # cost
+        self.C = multi_cost
+        # obs num of each scans
+        self.M = multi_assign.max(axis=0)+1
+        # NSO
+        self.is_NSO_enabled = is_NSO_enabled
 
-    def _calc_q(self, multi_assign, C, M, U):
-        # D(i1,i2) : cost
-        # T(i1,i2) : Trk No. of min cost
-        D = np.zeros( (M[0]+1, M[1]+1) )
-        T = np.zeros( (M[0]+1, M[1]+1), int )
-        D[:,1:] = 1000 # unallowed solution
-        D[0, 0] = min(-U)
+    def _get_u_init(self):
+        # return np.zeros( ( (self.M[2:]).sum(), ) )
+        return np.zeros( ( (self.M[2:]-1).sum(), ) )
+
+    def _get_u_idx(self, ir, r):
+        # return (self.M[2:r]).sum() + ir
+        assert 1<r and r<self.A.shape[1], "wrong input parameter r = {}".format(r)
+        assert 0<ir and ir<self.M[r], "wrong input parameter ir = {}".format(ir)
+        return (self.M[2:r]-1).sum() + ir - 1
+
+    def _calc_match_tracks(self, k, track_list):
+        # collect matched tracks
+        match_track_list = []
+        for i in range(self.A.shape[0]):
+            i_vector = self.A[i, 0:k]
+            for j, m in enumerate(track_list):
+                j_vector = self.A[m, 0:k]
+                if (i_vector == j_vector).all():
+                    match_track_list.append((i,j))
+                    break
+
+        return match_track_list
+
+
+    def _calc_qr(self, r, U, match_track_list):
+        # D(j, ir) : min cost
+        # T(j, ir) : Trk No. of min cost
+        J = max([ j for i,j in match_track_list])+1
+        D = np.zeros( (J, self.M[r]) )
+        T = np.zeros( (J, self.M[r]), int )
+
+        # TODO: survey about initialize
+        # initialize all D by 1000 -> U become divergence because U not included in D
+        # initialize all D by min(U) -> unallowed solution is selected
+        
+        # initialize by unallowed solution for no-overwrite
+        D[:,1:] = 1000
         T[:] = -1
-        for i in range(multi_assign.shape[0]):
-            i1 = multi_assign[i, 0]
-            i2 = multi_assign[i, 1]
-            i3 = multi_assign[i, 2]
-            Di = C[i] - U[i3]
-            if D[i1, i2] > Di:
-                D[i1, i2] = Di
-                T[i1, i2] = i
+        
+        # initialize by minimum conbination of lagrange multipliers
+        # it's needed for convergence when no overwrite
+        D[:,0] = sum([
+            min([-U[self._get_u_idx(im, m)] for im in range(1,self.M[m]) ])
+            for m in range(r+1, self.A.shape[1]) if self.M[m] > 1
+        ])
+
+        for i,j in match_track_list:
+            Dj = self.C[i] - sum([
+                U[self._get_u_idx(self.A[i,m], m)]
+                for m in range(r+1, self.A.shape[1])
+                if self.A[i,m] != 0
+            ])
+            ir = self.A[i,r]
+            if D[j, ir] > Dj:
+                D[j, ir] = Dj
+                T[j, ir] = i
+
+        # d00 constraint to be no greater than zero (p.419)
+        if r==1:
+            D[0,0] = min(0.0, D[0,0])
 
         if D.shape[0] >= D.shape[1]:
             Q, assign = calc_best_assignment_by_auction( D, False )
@@ -227,28 +352,71 @@ class MultiAssignmentSolver:
             Q, assign = calc_best_assignment_by_auction( D.T, False )
             track_list = [ T[i,j] for i,j in enumerate(assign) if T[i,j] >= 0 ]
         
-        Q = Q.sum() + U.sum()
+        Q = Q.sum() + U[self._get_u_idx(1, r+1):].sum()
 
         # for unit test
-        self.D =  D
+        self.Dq = D
+        self.T = T
 
         return (Q, track_list)
 
-    def _calc_v(self, multi_assign, track_list, C, M):
-        # D(i1-i2, i3) : cost
-        D = np.zeros( (len(track_list), M[2]+1) )
-        T = np.zeros( (len(track_list), M[2]+1), int )
-        D[:,1:] = 1000 # unallowed solution
-        for i in range(multi_assign.shape[0]):
-            i1 = multi_assign[i, 0]
-            i2 = multi_assign[i, 1]
-            i3 = multi_assign[i, 2]
-            for j, k in enumerate(track_list):
-                dual_i1 = multi_assign[k, 0]
-                dual_i2 = multi_assign[k, 1]
-                if i1 == dual_i1 and i2 == dual_i2:
-                    D[j, i3] = C[i]
-                    T[j, i3] = i
+
+    def _calc_q(self, U):
+
+        def _min_objective(x, grad):
+            """ Min Objective (P411, q(u)) """
+            assert grad.size == 0, "solver using gradient is not supported"
+            U[self._get_u_idx(1, r+1):] = x[:]
+            return -1.*self._calc_qr(r, U, match_track_list)[0]
+
+        # i : ID of tracks
+        # r : ID of scans
+        # ir: ID of scan r observations
+        # j : ID of combination of (i0, i1, ..., ir-1)
+        r=1
+        track_list = list({ i0:i  for i,i0 in enumerate( self.A[:,0]) }.values())
+
+        while r<self.A.shape[1]-1:
+            match_track_list = self._calc_match_tracks(r, track_list)
+
+            if self.is_NSO_enabled:
+            # if self.A.shape[1] >= 4:
+                # ND Assignment (N>=4)
+                # Maximize Q by using Nonsmooth Optim Method
+
+                # TODO: doesn't work properly ( Q(u) is sometimes over than final V(u))
+                #  Is not U proper? G is not zero but Q is higher than final V
+                #  calc_best_assignment_by_auction doesn't also work properly although eps-> zero
+                #  Is globaly optim solver needed? (because localy optim select wrong combination)
+
+                # Paper also saied "The exact manner in which the Lagrangian multipliers are adjusted ... 
+                #  ... appears to be a 'subject of current research' " at P420
+
+                opt = nlopt.opt(nlopt.LN_BOBYQA, len(U[self._get_u_idx(1, r+1):]))
+                opt.set_min_objective(_min_objective)
+                opt.set_xtol_rel(1e-4)
+                U[self._get_u_idx(1, r+1):] = opt.optimize(U[self._get_u_idx(1, r+1):])
+                Q, track_list = self._calc_qr(r, U, match_track_list)
+            else:
+                # 3D Assignment (N=3)
+                Q, track_list = self._calc_qr(r, U, match_track_list)
+
+            r += 1
+
+        return (Q, track_list, U)
+
+    def _calc_v(self,track_list):
+        # D(j, i_last) : cost
+        D = np.zeros( (len(track_list), self.M[-1]) )
+        T = np.zeros( (len(track_list), self.M[-1]), int )
+        # initialize by unallowed solution for no-overwrite
+        D[:] = 1000
+        T[:] = -1
+
+        for i,j in self._calc_match_tracks(-1, track_list):
+            i_last = self.A[i, -1]
+            D[j, i_last] = self.C[i]
+            T[j, i_last] = i
 
         if D.shape[0] >= D.shape[1]:
             V, assign = calc_best_assignment_by_auction( D, False )
@@ -259,110 +427,28 @@ class MultiAssignmentSolver:
             
         V = V.sum()
 
+        # for unit test
+        self.Dv = D
+
         return (V, track_list)
 
-    def _calc_g(self, multi_assign, track_list, M):
-        G = np.ones( ( M[2]+1, ) )
-        for k in track_list:
-            i3 = multi_assign[k, 2]
-            G[i3] -= 1
+    def _calc_g(self, track_list):
+        G = np.ones( self._get_u_init().shape, int )
+        for i in track_list:
+            for r, ir in enumerate(self.A[i,2:]):
+                r += 2
+                if ir!=0:
+                    G[self._get_u_idx(ir, r)] -= 1
 
         return G
 
-    def _update_u( self, U, Q, V, G ):
-        ca = (V-Q)/np.power(G[1:],2).sum()
-        U[1:] += ca * G[1:]
+    def _update_u( self, U, Q, V, Tq ):
+        G = self._calc_g(Tq)
+        if np.power(G,2).sum() != 0:
+            ca = (V-Q)/np.power(G,2).sum()
+            U += ca * G
+
+        # for unit test
+        self.G = G
 
         return U
-
-    def calc_3dimensional_assignment( self, multi_assign, multi_score,  is_maximized=True ):
-        """Calculate 3D  Assignment ( 3 Scans, 3 Sensors )
-
-        ref) Design and Analysis of Modern Tracking Systems
-                    7.3.2 3D Application of Lagrangian Relaxation
-
-        Arguments:
-            multi_assign {numpy.ndarray} -- A( I, J )
-            multi_score {numpy.ndarray} -- S( I )
-
-            I : Track No.
-            J : Scan No.
-            A(i, j) : Obs No. assigned at Track(i) of Scan(j)
-
-        Keyword Arguments:
-            is_maximized {bool} -- maximize  score or not (default: {True})
-
-        """
-
-        assert multi_score.shape == (multi_assign.shape[0], )
-        assert multi_assign.shape[1] == 3
-
-        # obs num of each scans
-        M = multi_assign.max(axis=0)
-
-        # cost
-        if is_maximized:
-            C = -multi_score
-        else:
-            C = multi_score
-
-        # lagrange multipliers
-        U = np.zeros( ( M[2]+1, ) )
-        Qmax=-100
-        Vmin=-10
-        itr=0
-
-        # Iteration
-        while (Vmin-Qmax)/abs(Qmax) > 0.01 or itr>100:
-            Q, T = self._calc_q(multi_assign, C, M, U)
-            G = self._calc_g( multi_assign, T, M)
-            V, T = self._calc_v( multi_assign, T, C, M)
-            if itr==0:
-                Qmax=Q
-                Vmin=V
-                Tmin=T
-            else:
-                Qmax=max([Qmax, Q])
-                if Vmin>V:
-                    Vmin=V
-                    Tmin=T
-            U = self._update_u( U, Qmax, Vmin, G )
-            itr+=1
-
-        return (Vmin, Tmin)
-
-    def calc_multidimensional_assignment( self, multi_assign, multi_score,  is_maximized=True ):
-        """Calculate Multidimensional  Assignment ( Multiple Scans, Multiple Sensors )
-        
-        Arguments:
-            multi_assign {numpy.ndarray} -- A( I, J )
-            multi_score {numpy.ndarray} -- S( I )
-
-            I : Track No.
-            J : Scan No.
-            A(i, j) : Obs No. assigned at Track(i) of Scan(j)
-
-        Keyword Arguments:
-            is_maximized {bool} -- maximize  score or not (default: {True})
-
-        """
-        assert multi_score.shape == (multi_assign.shape[0], )
-
-        # obs num of each scans
-        M = multi_assign.max(axis=0)
-
-        # cost
-        if is_maximized:
-            C = -multi_score
-        else:
-            C = multi_score
-
-        U = np.zeros( ( M[2]+1, ) )
-
-        opt = nlopt.opt(nlopt.LN_BOBYQA, len(U))
-        opt.set_min_objective(lambda x, grad: -1.*self._calc_q(multi_assign, C, M, x)[0]  )
-        opt.set_xtol_rel(1e-4)
-        U = opt.optimize(U)
-        Q = opt.last_optimum_value()
-
-        return (None, None)
