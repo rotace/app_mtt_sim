@@ -8,7 +8,7 @@ import trackers
 
 np.set_printoptions(suppress=True)
 
-class TestTracker(unittest.TestCase):
+class TestTrackers(unittest.TestCase):
 
     def test_GNN(self):
         tracker = trackers.GNN(

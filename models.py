@@ -23,6 +23,32 @@ def calc_ellipsoidal_gate(model, obs):
     return (GATE, dy @ np.linalg.inv(S) @ dy, detS)
 
 
+def calc_ellipsoidal_gate_volume(model, obs, gate):
+    """Calc Ellipsoidal Gate Volume
+
+        ref) Design and Analysis of Modern Tracking Systems
+                    6.3.2 Ellipsoidal Gates
+
+    Arguments:
+        model {KalmanModel} -- Kalman Model
+        obs {Obs} -- Observation
+        gate {float} -- gate
+    """
+    # detS is not used obs
+    _, _, detS = calc_ellipsoidal_gate(model, obs)
+
+    if len(obs.y) == 1:
+        CM = 2
+    elif len(obs.y) == 2:
+        CM = np.pi
+    elif len(obs.y) == 3:
+        CM = 4*np.pi/3
+    elif len(obs.y) == 4:
+        CM =   np.pi**2/2
+    
+    return CM * np.sqrt(detS) * gate ** (0.5 * len(obs.y))
+
+
 class Obs():
     """ Observation """
 
