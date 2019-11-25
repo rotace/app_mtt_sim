@@ -28,7 +28,7 @@ class TestTracks(unittest.TestCase):
             model_factory=models.Simple2DModelFactory(
                 model=models.KalmanModel,
                 q=0.001,
-                pv=0.0
+                pv=0.1
             )
         )
 
@@ -57,7 +57,10 @@ class TestTracks(unittest.TestCase):
                     tgt[0:2] += tgt[2:]
                 
                 for trk, tgt in zip(sim_tracks, sim_targets):
-                    trk.assign(models.Obs(tgt[:2], np.eye(2), tracker.sensor ))
+                    trk.assign(models.Obs(
+                        # tgt[:2],  np.eye(2), tracker.sensor
+                        np.random.multivariate_normal(tgt[:2], np.eye(2)), np.eye(2), tracker.sensor
+                    ))
 
             # plt.plot(
             #     [tgt[0] for tgt in sim_targets],
@@ -71,19 +74,22 @@ class TestTracks(unittest.TestCase):
             #     marker="D", color="r", alpha=.5, linestyle="None"
             # )
 
-            plt.plot(
-                k,
-                sim_targets[-1][0],
-                marker="D", color="y", alpha=.5, linestyle="None"
-            )
+            # plt.plot(
+            #     k,
+            #     sim_targets[-1][0],
+            #     marker="D", color="y", alpha=.5, linestyle="None"
+            # )
 
-            plt.plot(
-                k,
-                sim_tracks[-1].model.x[0],
-                marker="D", color="r", alpha=.5, linestyle="None"
-            )
+            # plt.plot(
+            #     k,
+            #     sim_tracks[-1].model.x[0],
+            #     marker="D", color="r", alpha=.5, linestyle="None"
+            # )
 
-            # TODO view gate etc.
-
-
-        plt.show()
+        # after loop
+        if False:
+            for trk in sim_tracks:
+                # trk.plot_obs_list()
+                # trk.plot_mdl_list()
+                trk.plot_gate()        
+            plt.show()

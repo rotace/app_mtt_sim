@@ -145,7 +145,7 @@ class KalmanModel():
          P = P - K*H*P
          x = x + K*(y-Hx)
         """
-        self.P = self.P - self.K @ self.H * self.P
+        self.P = self.P - self.K @ self.H @ self.P
         self.x = self.x + self.K @ (y-self.H @ self.x)
 
     def _predict_step(self):

@@ -1,4 +1,6 @@
+import copy
 import numpy as np
+import matplotlib.pyplot as plt
 
 import models
 
@@ -24,17 +26,21 @@ class BaseTrack():
         # set param
         if "gate" not in kwargs:
             kwargs["gate"] = None
-        # set data
+
         self.param = kwargs
         self.tracker = tracker
-        self.obs_list = [obs]
+        # set data
+        self.obs_list = [copy.deepcopy(obs)]
+        # self.mdl_list = [None]
         self.cnt_list = [self.tracker.count]
         # create model
         self.model = self.tracker.model_factory.create(obs)
+        self.mdl_list = [copy.deepcopy(self.model)]
 
     def assign(self, obs):
         # set data
-        self.obs_list.append(obs)
+        self.obs_list.append(copy.deepcopy(obs))
+        self.mdl_list.append(copy.deepcopy(self.model))
         self.cnt_list.append(self.tracker.count)
         # update model
         self.model.update(obs)
@@ -42,6 +48,7 @@ class BaseTrack():
     def unassign(self):
         # set data
         self.obs_list.append(None)
+        self.mdl_list.append(copy.deepcopy(self.model))
         self.cnt_list.append(self.tracker.count)
         # update model
         self.model.update(None)
@@ -64,7 +71,37 @@ class BaseTrack():
     @staticmethod
     def calc_init_score(obs):
         raise NotImplementedError
+  
+    def plot_obs_list(self):
+        plt.plot(
+            [obs.y[0] if obs is not None else None for obs in self.obs_list ],
+            [obs.y[1] if obs is not None else None for obs in self.obs_list ],
+            marker="D", color="r", alpha=.5, linestyle="None"
+        )
+    
+    def plot_mdl_list(self):
+        plt.plot(
+            [mdl.x[0] if mdl is not None else None for mdl in self.mdl_list ],
+            [mdl.x[1] if mdl is not None else None for mdl in self.mdl_list ],
+            marker="D", color="g", alpha=.5, linestyle="None"
+        )
 
+    def plot_gate(self):
+        gate_list = [
+            models.calc_ellipsoidal_gate(mdl, obs)
+            if obs is not None else (None, None, None)
+            for mdl, obs in zip(self.mdl_list, self.obs_list)
+        ]
+        plt.plot(
+            self.cnt_list,
+            [ gate for gate, dist, detS in gate_list ],
+            marker="D", color="r", alpha=.5, linestyle="None"
+        )
+        plt.plot(
+            self.cnt_list,
+            [ dist  for gate, dist, detS in gate_list ],
+            marker="D", color="g", alpha=.5, linestyle="None"
+        )
 
 
 class DistTrack(BaseTrack):
