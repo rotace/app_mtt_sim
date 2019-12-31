@@ -2,6 +2,7 @@ import numpy as np
 from scipy.linalg import block_diag
 
 import sensors
+import utils
 
 
 def calc_ellipsoidal_gate(model, obs):
@@ -214,33 +215,104 @@ class Simple2DModelFactory():
         self.model = model
         self.q = q
         self.pv = pv
+        self.SD=2
+        self.XD=2
+        self.YD=1
 
     def create(self, obs):
+        assert obs.y.shape == (self.SD,), "obs.y.shape invalid, actual:" + str(obs.y.shape)
+        assert obs.R.shape == (self.SD,self.SD), "obs.R.shape invalid, actual:" + str(obs.R.shape)
+        
         dT = obs.sensor.param["dT"]
         
-        x = np.array(
-            [obs.y[0], obs.y[1], 0.0, 0.0]
-        )
+        x = np.zeros(self.SD*self.XD)
+        x[0:self.SD] = obs.y
 
         P = block_diag(obs.R, np.eye(2) * self.pv)
-        
-        F = np.array(
-            [[1.0, 0.0, dT, 0.0],
-            [0.0, 1.0, 0.0, dT],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0]]
-        )
 
-        H = np.array(
-            [[1, 0, 0, 0],
-            [0, 1, 0, 0]]
+        H = np.zeros( (self.SD, self.SD*self.XD) )
+        H[0:self.SD, 0:self.SD] = np.eye(self.SD)
+
+        F = np.array(
+            [[1.0, dT],
+            [0.0, 1.0]],
         )
 
         Q = np.array(
-            [[dT**3/3, 0, dT**2/2, 0],
-            [0, dT**3/3, 0, dT**2/2],
-            [dT**2/2, 0, dT, 0],
-            [0, dT**2/2, 0, dT]]
+            [[dT**3/3, dT**2/2],
+            [dT**2/2, dT]]
         ) * self.q
+
+        F = utils.swap_block_matrix( block_diag( *tuple([F for i in range(self.SD)]) ), self.SD )
+        Q = utils.swap_block_matrix( block_diag( *tuple([Q for i in range(self.SD)]) ), self.SD )
+        
+        return self.model(x, F, H, P, Q, is_nonlinear=False)
+
+
+
+class SingerModelFactory():
+    """ Singer Model Factory
+    
+     * Linear Kalman Filter
+     * Multi Space Dimension (SD = 1D~3D supported)
+     * Singer Acceleration Model
+     * State Vector x is posit/veloc/accel (XD=3) for each Direction (SD=Multi)
+     * Input Vector y is posit (YD=1) for each Direction (SD=Multi)
+     * (x1,x2, ..., xX) is Independent
+
+     ex)
+      * Cart 2D Model (cart-x, cart-y), x=(px, py, vx, vy, ax, ay), y=(px, py)
+      * Polar 2D Model (range, theta), x=(pr, pt, vr, vt, ar, at), y=(pr, pt)
+
+    ref) Design and Analysis of Modern Tracking Systems
+        4.2.1 Singer Acceleration Model
+    """
+    def __init__(self, model, tm, sm, SD=2):
+        self.model = model
+        self.tm = tm
+        self.sm = sm
+        self.SD = SD
+        self.XD = 3
+        self.YD = 1
+
+    def create(self, obs):
+        assert obs.y.shape == (self.SD,), "obs.y.shape invalid, actual:" + str(obs.y.shape)
+        assert obs.R.shape == (self.SD,self.SD), "obs.R.shape invalid, actual:" + str(obs.R.shape)
+
+        dT = obs.sensor.param["dT"]
+        tm = self.tm
+        sm = self.sm
+        beta = 1/tm
+        rm = np.exp(-beta * dT)
+        
+        x = np.zeros(self.SD*self.XD)
+        x[0:self.SD] = obs.y
+
+        P = block_diag(obs.R, np.zeros((2*self.SD, 2*self.SD)))
+
+        H = np.zeros( (self.SD, self.SD*self.XD) )
+        H[0:self.SD, 0:self.SD] = np.eye(self.SD)
+
+        F = np.array(
+            [[1.0, dT, 1/beta/beta*(-1+beta*dT+rm)],
+            [0.0, 1.0, 1/beta*(1-rm)],
+            [0.0, 0.0, rm]]
+        )
+
+        q11 = 0.5/beta**5 * (+1 - rm**2 - 4*beta*dT*rm + 2*beta*dT - 2*beta**2*dT**2 + 2*beta**3*dT**3/3 )
+        q12 = 0.5/beta**4 * (+1 + rm**2 + 2*beta*dT*rm - 2*beta*dT + 1*beta**2*dT**2 - 2*rm)
+        q13 = 0.5/beta**3 * (+1 - rm**2 - 2*beta*dT*rm)
+        q22 = 0.5/beta**3 * (-3 - rm**2 + 4*rm + 2*beta*dT)
+        q23 = 0.5/beta**2 * (+1 + rm**2 - 2*rm)
+        q33 = 0.5/beta**1 * (+1 - rm**2)
+
+        Q = np.array(
+            [[q11, q12, q13],
+            [q12, q22, q23],
+            [q13, q23, q33]]
+        ) * 2*sm**2/tm
+
+        F = utils.swap_block_matrix( block_diag( *tuple([F for i in range(self.SD)]) ), self.SD )
+        Q = utils.swap_block_matrix( block_diag( *tuple([Q for i in range(self.SD)]) ), self.SD )
         
         return self.model(x, F, H, P, Q, is_nonlinear=False)

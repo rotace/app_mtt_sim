@@ -1,11 +1,40 @@
 import unittest
 import utils
 import numpy as np
+from scipy.linalg import block_diag
 
 np.set_printoptions(suppress=True)
 
 class TestUtils(unittest.TestCase):
+
+    def  test_swap_block_matrix(self):
+        vec = np.array([0,1,2,3,4,5])
+        np.testing.assert_almost_equal(utils.swap_block_matrix(vec, 2), [0,2,4,1,3,5])
+        np.testing.assert_almost_equal(utils.swap_block_matrix(vec, 3), [0,3,1,4,2,5])
+        
+        mat = np.array(
+            [
+                [11.,12.,0.0,0.0,0.0,0.0],
+                [21.,22.,0.0,0.0,0.0,0.0],
+                [0.0,0.0,31.,32.,0.0,0.0],
+                [0.0,0.0,41.,42.,0.0,0.0],
+                [0.0,0.0,0.0,0.0,51.,52.],
+                [0.0,0.0,0.0,0.0,61.,62.]
+            ]
+        )
+        expected = np.array(
+            [
+                [11., 0.0, 0.0, 12., 0.0, 0.0],
+                [0.0, 31., 0.0, 0.0, 32., 0.0],
+                [0.0, 0.0, 51., 0.0, 0.0, 52.],
+                [21., 0.0, 0.0, 22., 0.0, 0.0],
+                [0.0, 41., 0.0, 0.0, 42., 0.0],
+                [0.0, 0.0, 61., 0.0, 0.0, 62.]
+            ]
+        )
+        np.testing.assert_almost_equal(utils.swap_block_matrix(mat, 2), expected)
     
+
     def test_calc_best_assignment_by_auction(self):
         """Calculate Best Assignment by Auction Method
 

@@ -5,6 +5,35 @@ import numpy as np
 
 import nlopt
 
+def swap_block_matrix(mat, n_block):
+    """
+    swap block vector/matrix
+
+    n_block=2
+    blockA blcokB blockC
+    |<--->|<--->|<--->|
+    [A1,A2,B1,B2,C1,C2]
+
+    ex)
+    In this case, n_block=2
+    swap
+    from
+    mat=[a1,a2,b1,b2,c1,c2]
+    into
+    ans=[a1,b1,c1,a2,b2,c2]
+    """
+
+    assert len(mat) % n_block == 0
+    idx = np.array(range(len(mat)))
+    idx = np.concatenate( [idx[i::n_block] for i in range(n_block)] )
+
+    if len(mat.shape) == 1: # vector
+        return mat[idx]
+    elif len(mat.shape) == 2: # matrix
+        return mat[idx,:][:,idx]
+    else:
+        assert False, "mat.shape invalid, actual:" + str(mat.shape)
+
 
 def calc_best_assignment_by_auction( score_matrix, is_maximized=True , is_verbosed=False):
     """Calculate Best Assignment by Auction Method
