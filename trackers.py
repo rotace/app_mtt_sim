@@ -102,6 +102,7 @@ class GNN(BaseTracker):
             self.trk_list[i_trk].unassign()
 
         #---- track confirmation and deletion
+        # TODO: implement track confirmation and deletion
 
 
 
@@ -195,6 +196,7 @@ class JPDA(BaseTracker):
             self.trk_list.append( self.track_factory.create( obs, self ) )
 
         #---- track confirmation and deletion
+        # TODO: implement track confirmation and deletion
 
 
 

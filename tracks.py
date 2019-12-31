@@ -151,17 +151,16 @@ class LLRTrack(BaseTrack):
         self.scr_list = [self.calc_init_score(obs)]
         
         # set param
-        if "PFD" in self.param:
-            self.param["THD"] = np.log( self.param["PFD"] )
-        
-        else:
-            if "alpha" in self.param and "beta" in self.param:
-                self.param["T1"] = np.log( self.param["beta"] / (1-self.param["alpha"]) )
-                self.param["T2"] = np.log( (1-self.param["beta"]) / self.param["alpha"] )
+        if "PFD" not in self.param:
+            self.param["PFD"] = 1.e-3
+        if "alpha" not in self.param:
+            self.param["alpha"] = 4/3600/1000
+        if "beta" not in self.param:
+            self.param["beta"] = 0.1
 
-            else:
-                self.param["THD"] = np.log(1e-3)
-
+        self.param["THD"] = np.log( self.param["PFD"] )
+        self.param["T1"] = np.log( self.param["beta"] / (1-self.param["alpha"]) )
+        self.param["T2"] = np.log( (1-self.param["beta"]) / self.param["alpha"] )
 
     def assign(self, obs):
         self.scr_list.append(self.calc_match_score(obs))
@@ -182,16 +181,12 @@ class LLRTrack(BaseTrack):
         return self.scr_list[-1] + dLk + dLs
 
     def judge_confirmation(self):
-        if "T2" in self.param:
-            return self.scr_list[-1] > self.param["T2"]
-        else:
-            return True
+        return self.scr_list[-1] > self.param["T2"]
 
     def judge_deletion(self):
-        if "THD" in self.param:
-            return max(self.scr_list) - self.scr_list[-1] > self.param["THD"]
-        else:
-            return self.scr_list[-1] > self.param["T1"]
+        is_del_a = self.scr_list[-1] < self.param["T1"]
+        is_del_b =  self.scr_list[-1] - max(self.scr_list) < self.param["THD"]
+        return is_del_a or is_del_b
     
     @staticmethod
     def calc_init_score(obs):
@@ -200,6 +195,12 @@ class LLRTrack(BaseTrack):
         dLs = np.log( obs.sensor.param["PD"] / obs.sensor.param["PFA"] )
         return L0 + dLk + dLs
 
+    def plot_scr_list(self):
+        plt.plot(
+            self.cnt_list,
+            self.scr_list,
+            marker="D", color="r", alpha=.5, linestyle="None"
+        )
 
 
 class PDALLRTrack(LLRTrack):
