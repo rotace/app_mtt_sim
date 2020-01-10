@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 from scipy.linalg import block_diag
 
@@ -155,9 +156,12 @@ class KalmanModel():
          P = F*P*F' + Q
          x = F*x
         """
+        # register current state
+        self.x_current = self.x
+        # predict next state
         self.P = self.F @ self.P @ self.F.T + self.Q
         self.x = self.F @ self.x
-    
+
     def _update_H(self, x):
         # You need implement at subclass if use nonlinear H
         raise NotImplementedError
@@ -198,7 +202,20 @@ class PDAKalmanModel(KalmanModel):
 
 
 
-class Simple2DModelFactory():
+class ModelFactory():
+    """ Base ModelFactory """
+
+    def __init__(self):
+        """Initialize Target
+        """
+        pass
+
+    def create(self, obs):
+        raise NotImplementedError
+
+
+
+class Simple2DModelFactory(ModelFactory):
     """ Simple 2D Model Factory
     
      * Linear Kalman Filter
@@ -250,14 +267,15 @@ class Simple2DModelFactory():
 
 
 
-class SingerModelFactory():
+class SingerModelFactory(ModelFactory):
     """ Singer Model Factory
     
      * Linear Kalman Filter
      * Multi Space Dimension (SD = 1D~3D supported)
      * Singer Acceleration Model
      * State Vector x is posit/veloc/accel (XD=3) for each Direction (SD=Multi)
-     * Input Vector y is posit (YD=1) for each Direction (SD=Multi)
+     * Input Vector y is posit (YD=1) for each Direction (SD=Multi) without velocity measurement
+     * Input Vector y is posit/veloc (YD=2) for each Direction (SD=Multi) with velocity measurement
      * (x1,x2, ..., xX) is Independent
 
      ex)
@@ -267,17 +285,27 @@ class SingerModelFactory():
     ref) Design and Analysis of Modern Tracking Systems
         4.2.1 Singer Acceleration Model
     """
-    def __init__(self, model, tm, sm, SD=2):
+    def __init__(self, model, tm, sm, SD=2, is_vel_measure_enabled=False):
+        """
+        Arguments:
+        tm {float} -- target maneuver time constant
+        sm {float} -- target maneuver starndard deviation
+        SD {integer} -- space dimension
+        is_vel_measure_enabled {bool} -- velocity measurement is available or not
+        """
         self.model = model
         self.tm = tm
         self.sm = sm
         self.SD = SD
         self.XD = 3
-        self.YD = 1
+        if is_vel_measure_enabled:
+            self.YD = 2
+        else:
+            self.YD = 1
 
     def create(self, obs):
-        assert obs.y.shape == (self.SD,), "obs.y.shape invalid, actual:" + str(obs.y.shape)
-        assert obs.R.shape == (self.SD,self.SD), "obs.R.shape invalid, actual:" + str(obs.R.shape)
+        assert obs.y.shape == (self.SD*self.YD,), "obs.y.shape invalid, actual:" + str(obs.y.shape)
+        assert obs.R.shape == (self.SD*self.YD,self.SD*self.YD), "obs.R.shape invalid, actual:" + str(obs.R.shape)
 
         dT = obs.sensor.param["dT"]
         tm = self.tm
@@ -286,12 +314,17 @@ class SingerModelFactory():
         rm = np.exp(-beta * dT)
         
         x = np.zeros(self.SD*self.XD)
-        x[0:self.SD] = obs.y
+        x[0:self.SD*self.YD] = obs.y
 
-        P = block_diag(obs.R, np.zeros((2*self.SD, 2*self.SD)))
+        P = np.zeros( (self.SD*self.XD, self.SD*self.XD) )
+        P[0:self.SD*self.YD, 0:self.SD*self.YD] = obs.R
 
-        H = np.zeros( (self.SD, self.SD*self.XD) )
-        H[0:self.SD, 0:self.SD] = np.eye(self.SD)
+        H = np.zeros( (self.SD*self.YD, self.SD*self.XD) )
+        H[0:self.SD*self.YD, 0:self.SD*self.YD] = np.eye(self.SD*self.YD)
+
+        # H = np.zeros( (self.YD, self.XD) )
+        # H[0:self.YD, 0:self.YD] = np.eye(self.YD)
+        # H = utils.swap_block_matrix( block_diag( *tuple([H for i in range(self.SD)]) ), self.SD )
 
         F = np.array(
             [[1.0, dT, 1/beta/beta*(-1+beta*dT+rm)],
@@ -316,3 +349,151 @@ class SingerModelFactory():
         Q = utils.swap_block_matrix( block_diag( *tuple([Q for i in range(self.SD)]) ), self.SD )
         
         return self.model(x, F, H, P, Q, is_nonlinear=False)
+
+
+class Target():
+    """ Base Target """
+
+    def __init__(self):
+        """Initialize Target
+        """
+        pass
+
+    def update(self):
+        raise NotImplementedError
+
+
+class SingerTarget(Target):
+    """ Singer Target Maneuver Model (1D, posit/veloc/accel)
+    
+    ref) Design and Analysis of Modern Tracking Systems
+        4.2.1 Singer Acceleration Model
+    """
+
+    def __init__(self, tm, sm, x_init=np.array([0.,0.,0.])):
+        """
+        Arguments:
+        tm {float} -- target maneuver time constant
+        sm {float} -- target maneuver starndard deviation
+        dT {float} -- sampling interval
+        x_init  {np.array} -- state vector initial value
+        """
+        super().__init__()
+
+        self.tm = tm
+        self.sm = sm
+        self.x  = x_init
+
+    def update(self, dT):
+        """
+        Arguments:
+        dT {float} -- sampling interval
+        """
+        tm = self.tm
+        sm = self.sm
+        beta = 1/tm
+        rm = np.exp(-beta * dT)
+
+        F = np.array(
+            [
+                [1.0, dT , 0.5*dT**2],
+                [0.0, 1.0, 1.0*dT**1],
+                [0.0, 0.0, rm],
+            ]
+        )
+
+        # F = np.array(
+        #     [
+        #         [1.0,  dT, 1/beta/beta*(-1+beta*dT+rm)],
+        #         [0.0, 1.0, 1/beta*(1-rm)],
+        #         [0.0, 0.0, rm],
+        #     ]
+        # )
+
+        self.x = F @ self.x
+        self.x[2] += np.sqrt(1-rm**2) * np.random.normal(0.0, sm)
+
+
+
+class ModelEvaluator():
+    """ Evaluate Each Model
+    
+    * Estimate Prediction Errors of posit/veloc/accel etc.
+    """
+
+    def __init__(self, model_factory, target, R, sensor):
+        """
+        Arguments:
+        model_factory {ModelFactory} -- model factory
+        target {Target} -- target
+        R {np.array} -- observation error covariance matrix
+        sensor {Sensor} -- sensor
+        """
+        self.model_factory = model_factory
+        self.target = target
+        self.R = R
+        self.sensor = sensor
+
+    def _initialize_simulation(self):
+        self.tgt_list = []
+        self.obs_list = []
+        self.mdl_list = []
+        tgt = self.target
+        obs = Obs(np.random.multivariate_normal(tgt.x[:len(self.R)], self.R), self.R, self.sensor)
+        mdl = self.model_factory.create(obs)
+        assert tgt.x.shape == mdl.x.shape, "target.x.shape and model.x.shape invalid, actual:" + str(tgt.x.shape) + str(mdl.x.shape)
+        return (tgt, obs, mdl)
+
+    def _calc_RMSE(self, is_prediction_error):
+        # calc RMSE
+        count = 0
+        RMSE = np.zeros(self.target.x.shape)
+        for mdl, tgt in zip(self.mdl_list, self.tgt_list):
+
+            if is_prediction_error:
+                RMSE += (tgt.x-mdl.x)**2
+            else:
+                RMSE += (tgt.x-mdl.x_current)**2
+           
+            count += 1
+        RMSE = np.sqrt(RMSE/count)
+        return RMSE
+
+    def estimate_prediction_error(self):
+        tgt, obs, mdl = self._initialize_simulation()
+
+        # init for prediction
+        tgt.update(self.sensor.param["dT"])
+
+        # simulate
+        count = 1000
+        while count>0:
+            self.tgt_list.append(copy.deepcopy(tgt))
+            self.obs_list.append(copy.deepcopy(obs))
+            self.mdl_list.append(copy.deepcopy(mdl))
+
+            mdl.update(obs)
+            tgt.update(self.sensor.param["dT"])
+            obs = Obs(np.random.multivariate_normal(tgt.x[:len(self.R)], self.R), self.R, self.sensor)
+
+            count -= 1
+        
+        return self._calc_RMSE(True)
+
+    def estimate_current_error(self):
+        tgt, obs, mdl = self._initialize_simulation()
+
+        # simulate
+        count = 1000
+        while count>0:
+            self.tgt_list.append(copy.deepcopy(tgt))
+            self.obs_list.append(copy.deepcopy(obs))
+            self.mdl_list.append(copy.deepcopy(mdl))
+
+            tgt.update(self.sensor.param["dT"])
+            obs = Obs(np.random.multivariate_normal(tgt.x[:len(self.R)], self.R), self.R, self.sensor)
+            mdl.update(obs)
+
+            count -= 1
+        
+        return self._calc_RMSE(False)

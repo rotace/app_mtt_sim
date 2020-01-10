@@ -9,30 +9,55 @@ def swap_block_matrix(mat, n_block):
     """
     swap block vector/matrix
 
-    n_block=2
+    ex1)
+    n_block=3, n_elems_0=2
+
     blockA blcokB blockC
     |<--->|<--->|<--->|
-    [A1,A2,B1,B2,C1,C2]
+    [a1,a2,b1,b2,c1,c2]
 
-    ex)
-    In this case, n_block=2
+    In this case
     swap
     from
     mat=[a1,a2,b1,b2,c1,c2]
     into
     ans=[a1,b1,c1,a2,b2,c2]
+
+    ex2)
+    n_block=2, n_elems_0=2, n_elems_1=2
+
+     blockA   blcokB
+    |<----->|<----->|
+    [ap1,ap2,bp1,bp2] -> blockP
+    [ap3,ap4,bp3,bp4] -> blockP
+    [cq1,cq2,dq1,dq2] -> blockQ
+    [cq3,cq4,dq3,dq4] -> blockQ
+
     """
 
-    assert len(mat) % n_block == 0
-    idx = np.array(range(len(mat)))
-    idx = np.concatenate( [idx[i::n_block] for i in range(n_block)] )
+    for i in range(len(mat.shape)):
+        assert mat.shape[i] % n_block == 0
 
-    if len(mat.shape) == 1: # vector
-        return mat[idx]
-    elif len(mat.shape) == 2: # matrix
-        return mat[idx,:][:,idx]
-    else:
-        assert False, "mat.shape invalid, actual:" + str(mat.shape)
+        n_elems = int(mat.shape[i]/n_block)
+
+        idx = np.array(range(mat.shape[i]))
+        idx = np.concatenate( [idx[j::n_elems] for j in range(n_elems)] )
+        
+        if   i==0:
+            if len(mat.shape) == 1: # vector
+                mat = mat[idx]
+            elif len(mat.shape) == 2: # matrix
+                mat = mat[idx,:]
+            else:
+                assert False, "mat.shape invalid, actual:" + str(mat.shape)
+        
+        elif i==1:
+            if len(mat.shape) == 2: # matrix
+                mat = mat[:,idx]
+            else:
+                assert False, "mat.shape invalid, actual:" + str(mat.shape)
+
+    return mat
 
 
 def calc_best_assignment_by_auction( score_matrix, is_maximized=True , is_verbosed=False):
