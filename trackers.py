@@ -1,7 +1,9 @@
 import copy
 import numpy as np
+import matplotlib.pyplot as plt
 
 import utils
+import models
 
 IGNORE_THRESH = -1000000
 
@@ -102,7 +104,12 @@ class GNN(BaseTracker):
             self.trk_list[i_trk].unassign()
 
         #---- track confirmation and deletion
-        # TODO: implement track confirmation and deletion
+        
+        # delete trackfile
+        self.trk_list = [ trk for trk in self.trk_list if not trk.judge_deletion() ]
+
+        # confirmation and representation
+        return [ trk for trk in self.trk_list if trk.judge_confirmation() ]
 
 
 
@@ -286,3 +293,140 @@ class TOMHT(BaseTracker):
     """
     # TODO need to implement MTT multiscan data association in utils module
     pass
+
+
+
+
+class TrackerEvaluator():
+    """ Evaluate Each Tracker
+
+    * calc MOE(Measures of Effectiveness) etc.
+
+    ref) Design and Analysis of Modern Tracking Systems
+        13.6 MTT System Evaluation Metrics
+    """
+
+    def __init__(self, tracker, tgt_list, R):
+        self.tracker = tracker
+        self.tgt_list = tgt_list
+        self.R = R
+        self.sensor = tracker.sensor
+
+    def _initialize_simulation(self):
+        return (copy.deepcopy(self.tracker), copy.deepcopy(self.tgt_list))
+
+    @staticmethod
+    def _calc_score_matrix(tgt_list, trk_list):
+        """ calc score matrix between target and track
+
+        ref) Design and Analysis of Modern Tracking Systems
+        13.6.1 Track-to-Truth Assignment
+        """
+        # init
+        M = len(tgt_list)
+        N = len(trk_list)
+        S = np.empty( (M + N, N) )
+        S.fill(IGNORE_THRESH)
+        
+        # set extra track score
+        S[range(M, M + N), range(N)] = [0.0]*N
+        
+        # set match score
+        for i, tgt in enumerate(tgt_list):
+            S[i, range(N)] = [
+                tgt.calc_match_score(trk.model)
+                if tgt.is_in_gate(trk.model) else IGNORE_THRESH
+                for trk in trk_list
+            ]
+        return S
+    
+    def _update(self, tracker, tgt_list):
+        # count targets
+        n_tgt = len(tgt_list)
+        
+        # register scan data
+        trk_list = tracker.register_scan(
+            [
+                models.Obs(
+                    np.random.multivariate_normal(tgt.x[:len(self.R)], self.R),
+                    self.R,
+                    tracker.sensor
+                )
+                for tgt in tgt_list if tgt.is_exist()
+            ]
+        )
+
+        # tgt_list update
+        [ tgt.update(self.sensor.param["dT"]) for tgt in tgt_list ]
+
+        # calc MOF (Measure of Fit) and assignment
+        S = self._calc_score_matrix(tgt_list, trk_list)
+        _, assign = utils.calc_best_assignment_by_auction(S)
+
+        # create track to truth assignment table
+        trk_truth = [0]*(n_tgt+1)
+        for j_trk, i_tgt in enumerate(assign):
+            if i_tgt < n_tgt:
+                trk_truth[i_tgt] = trk_list[j_trk].get_id()
+            else:
+                trk_truth[n_tgt] += 1
+
+        return (tracker, tgt_list, trk_list, trk_truth)
+    
+    def plot_tgt_trk(self, n_scan=10):
+        # init
+        tracker, tgt_list = self._initialize_simulation()
+        trk_scan_list = []
+        tgt_scan_list = []
+
+        # simulate
+        i_scan = n_scan
+        while i_scan>0:
+
+            tracker, tgt_list, trk_list, _ = self._update(tracker, tgt_list)
+            trk_scan_list.append( copy.deepcopy(trk_list) )
+            tgt_scan_list.append( copy.deepcopy(tgt_list) )
+            i_scan -= 1
+
+        plt.plot(
+            [trk.model.x[0] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
+            [trk.model.x[1] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
+            marker="D", color="r", alpha=.5, linestyle="None"
+        )
+        plt.plot(
+            [tgt.x[0] if tgt is not None else None for tgt_list in tgt_scan_list for tgt in tgt_list ],
+            [tgt.x[1] if tgt is not None else None for tgt_list in tgt_scan_list for tgt in tgt_list ],
+            marker="D", color="b", alpha=.5, linestyle="None"
+        )
+        plt.show()
+
+    def estimate_track_statistics(self, n_scan=10, n_run=10):
+        """ estimate track statictics
+
+        ref) Design and Analysis of Modern Tracking Systems
+        13.6.2 Computation of Track Statictics
+        """
+        trk_truth_tbl_runs = []
+        i_run = n_run
+        while i_run>0:
+
+            # init
+            tracker, tgt_list = self._initialize_simulation()
+            trk_truth_tbl = []
+
+            # simulate
+            i_scan = n_scan
+            while i_scan>0:
+
+                tracker, tgt_list, _, trk_truth = self._update(tracker, tgt_list)
+                trk_truth_tbl.append( trk_truth )
+                i_scan -= 1
+
+            trk_truth_tbl_runs.append( trk_truth_tbl )
+            i_run -= 1
+
+        # TODO: calc statistics below
+        # * Cumulative probability of track confirmation (Nc :comfirmation)
+        # *            Probability of current confirmed track (Nm :maintenance)
+        # * Kinematic error means and standard deviation (Na)
+        return trk_truth_tbl_runs

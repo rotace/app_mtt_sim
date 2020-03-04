@@ -19,10 +19,9 @@ class TestTrackers(unittest.TestCase):
                 PFA=1e-6,
                 BNT=0.03
             ),
-            model_factory=models.Simple2DModelFactory(
+            model_factory=models.SimpleModelFactory(
                 model=models.KalmanModel,
-                q=0.001,
-                pv=0.0
+                q=0.001
             ),
             track_factory=tracks.BaseTrackFactory(
                 track=tracks.LLRTrack,
@@ -30,23 +29,23 @@ class TestTrackers(unittest.TestCase):
             )
         )
 
-        targets = [
+        tgt_list = [
             np.array([-1,1]),
             np.array([20,36]),
         ]
 
         tracker.register_scan(
-            [models.Obs(y, np.eye(2) * 5) for y in targets]
+            [models.Obs(y, np.eye(2) * 5) for y in tgt_list]
         )
 
-        targets = [
+        tgt_list = [
             np.array([0,0]),
             np.array([19,37]),
             np.array([40,50]),
         ]
 
         tracker.register_scan(
-            [models.Obs(y, np.eye(2) * 5) for y in targets]
+            [models.Obs(y, np.eye(2) * 5) for y in tgt_list]
         )
 
 
@@ -66,10 +65,9 @@ class TestTrackers(unittest.TestCase):
                 PFA=1e-6,
                 BNT=0.03
             ),
-            model_factory=models.Simple2DModelFactory(
+            model_factory=models.SimpleModelFactory(
                 model=models.PDAKalmanModel,
-                q=0.0,
-                pv=0.0
+                q=0.0
             ),
             track_factory=tracks.BaseTrackFactory(
                 track=tracks.PDALLRTrack,
@@ -143,10 +141,9 @@ class TestTrackers(unittest.TestCase):
                 PFA=1e-6,
                 BNT=0.03
             ),
-            model_factory=models.Simple2DModelFactory(
+            model_factory=models.SimpleModelFactory(
                 model=models.KalmanModel,
-                q=0.001,
-                pv=0.0
+                q=0.001
             ),
             track_factory=tracks.BaseTrackFactory(
                 track=tracks.LLRTrack,
@@ -154,21 +151,55 @@ class TestTrackers(unittest.TestCase):
             )
         )
 
-        targets = [
+        tgt_list = [
             np.array([-1,1]),
             np.array([20,36]),
         ]
 
         tracker.register_scan(
-            [models.Obs(y, np.eye(2) * 5) for y in targets]
+            [models.Obs(y, np.eye(2) * 5) for y in tgt_list]
         )
 
-        targets = [
+        tgt_list = [
             np.array([0,0]),
             np.array([19,37]),
             np.array([40,50]),
         ]
 
         tracker.register_scan(
-            [models.Obs(y, np.eye(2) * 5) for y in targets]
+            [models.Obs(y, np.eye(2) * 5) for y in tgt_list]
         )
+
+
+    def test_TrackerEvaluator(self):
+
+        eval = trackers.TrackerEvaluator(
+            trackers.GNN(
+                sensor=sensors.BaseSensor(
+                    dT=1.0,
+                    PD=0.7,
+                    VC=1.0,
+                    PFA=1e-6,
+                    BNT=0.03
+                ),
+                model_factory=models.SimpleModelFactory(
+                    model=models.KalmanModel,
+                    q=1.0
+                ),
+                track_factory=tracks.BaseTrackFactory(
+                    track=tracks.LLRTrack,
+                    gate=None
+                )
+            ),
+            tgt_list=[
+                models.SimpleTarget(SD=2, x0=[ 0., 0.,+0.,+1.], start_time=0.0),
+                models.SimpleTarget(SD=2, x0=[ 0.,10.,+1.,-1.], start_time=0.0),
+                models.SimpleTarget(SD=2, x0=[10.,10.,-1.,-1.], start_time=0.0),
+                models.SimpleTarget(SD=2, x0=[10., 0.,+0.,+1.], start_time=1.0)
+            ],
+            R=np.diag([0.001,0.001])
+        )
+
+        # eval.plot_tgt_trk()
+        eval.estimate_track_statistics()
+        # np.testing.assert_almost_equal(RMSE.shape, (3,))

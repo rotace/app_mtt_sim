@@ -10,9 +10,11 @@ class BaseTrackFactory():
     def __init__(self, track, **kwargs):
         self.track = track
         self.param = kwargs
+        self.track_id_counter = 0
 
     def create(self, obs, tracker):
-        return self.track(obs, tracker, **self.param)
+        self.track_id_counter += 1
+        return self.track(obs, tracker, trk_id=self.track_id_counter, **self.param)
 
     def calc_init_score(self, obs):
         return self.track.calc_init_score(obs)
@@ -26,6 +28,9 @@ class BaseTrack():
         # set param
         if "gate" not in kwargs:
             kwargs["gate"] = None
+        
+        if "trk_id" not in kwargs:
+            kwargs["trk_id"] = 0
 
         self.param = kwargs
         self.tracker = tracker
@@ -36,6 +41,9 @@ class BaseTrack():
         # create model
         self.model = self.tracker.model_factory.create(obs)
         self.mdl_list = [copy.deepcopy(self.model)]
+    
+    def get_id(self):
+        return self.param["trk_id"]
 
     def assign(self, obs):
         # set data

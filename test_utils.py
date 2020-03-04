@@ -7,6 +7,39 @@ np.set_printoptions(suppress=True)
 
 class TestUtils(unittest.TestCase):
 
+    def test_cart2polar_and_polar2cart(self):
+        # loop test
+        expected = np.array([1,1,0,1,-1,0,-1,-1,0])
+        np.testing.assert_almost_equal(utils.polar2cart(utils.cart2polar(expected)), expected)
+        np.testing.assert_almost_equal(utils.cart2polar(utils.polar2cart(expected)), expected)
+
+        expected = np.array([1,np.pi/4,np.pi/4,4,5,6,7,8,9])
+        np.testing.assert_almost_equal(utils.polar2cart(utils.cart2polar(expected)), expected)
+        np.testing.assert_almost_equal(utils.cart2polar(utils.polar2cart(expected)), expected)
+
+        expected = np.array([1,np.pi*3/4,-np.pi/4,4,5,6,7,8,9])
+        np.testing.assert_almost_equal(utils.polar2cart(utils.cart2polar(expected)), expected)
+        np.testing.assert_almost_equal(utils.cart2polar(utils.polar2cart(expected)), expected)
+
+        # approach target
+        expected_car = np.array([1,1,0,-1,-1,0,0,0,0])
+        expected_pol = np.array([np.sqrt(2),np.pi/4,0,-np.sqrt(2),0,0,0,0,0])
+        np.testing.assert_almost_equal(utils.cart2polar(expected_car), expected_pol)
+        np.testing.assert_almost_equal(utils.polar2cart(expected_pol), expected_car)
+
+        # horizontal turn target
+        expected_car = np.array([1,1,0,-1,1,0,-1,-1,0])
+        expected_pol = np.array([np.sqrt(2),np.pi/4,0,0,1,0,0,0,0])
+        np.testing.assert_almost_equal(utils.cart2polar(expected_car), expected_pol)
+        np.testing.assert_almost_equal(utils.polar2cart(expected_pol), expected_car)
+
+        # vertical turn target
+        expected_car = np.array([1,0,-1,-1,0,-1,-1,0,+1])
+        expected_pol = np.array([np.sqrt(2),0,np.pi/4,0,0,1,0,0,0])
+        np.testing.assert_almost_equal(utils.cart2polar(expected_car), expected_pol)
+        np.testing.assert_almost_equal(utils.polar2cart(expected_pol), expected_car)
+
+
     def  test_swap_block_matrix(self):
         vec = np.array([0,1,2,3,4,5])
         np.testing.assert_almost_equal(utils.swap_block_matrix(vec, 3), [0,2,4,1,3,5])

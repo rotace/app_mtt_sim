@@ -28,10 +28,9 @@ class TestTracks(unittest.TestCase):
                 PFA=1e-6,
                 BNT=0.03
             ),
-            model_factory=models.Simple2DModelFactory(
+            model_factory=models.SimpleModelFactory(
                 model=models.KalmanModel,
-                q=0.001,
-                pv=0.1
+                q=0.001
             )
         )
 
@@ -96,10 +95,9 @@ class TestTracks(unittest.TestCase):
                 PFA=1e-6,
                 BNT=0.03
             ),
-            model_factory=models.Simple2DModelFactory(
+            model_factory=models.SimpleModelFactory(
                 model=models.KalmanModel,
-                q=0.001,
-                pv=0.1
+                q=0.001
             )
         )
 

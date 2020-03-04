@@ -74,6 +74,24 @@ class TestModels(unittest.TestCase):
             )
             plt.show()
 
+    
+    def test_ValueType(self):
+        expected = [
+            models.ValueType.POSIT_DIST,
+            models.ValueType.POSIT_AZIM,
+            models.ValueType.VELOC_DIST,
+            models.ValueType.VELOC_AZIM,
+        ]
+        
+        actual = models.ValueType.generate_value_type(
+            crd_type=models.CoordType.POLAR,
+            SD=2,
+            RD=2,
+            is_vel_measure_enabled=False
+        )
+
+        np.testing.assert_equal(actual, expected)
+
 
     def test_SignerModelFactory(self):
         """Singer Model Linear Kalman Filter
@@ -186,6 +204,35 @@ class TestModels(unittest.TestCase):
         np.testing.assert_almost_equal(md.Q, expected*2*sm**2/tm, decimal=2)
 
 
+    def test_Target(self):
+        pass
+        # target = models.SimpleTarget(
+        #     x0=np.array([1.,2.,3.,4.,5.,6.,7.,8.,9.]),
+        #     x0_type=models.ModelType(
+        #         crd_type = models.CoordType.CART,
+        #         val_type = [
+        #             models.ValueType.POSIT_D,
+        #             models.ValueType.ACCEL_N,
+        #             models.ValueType.POSIT_E,
+        #             models.ValueType.VELOC_E,
+        #             models.ValueType.POSIT_N,
+        #             models.ValueType.VELOC_D,
+        #             models.ValueType.ACCEL_E,
+        #             models.ValueType.ACCEL_D,
+        #             models.ValueType.VELOC_N,
+        #         ]
+        #     ),
+        #     SD=3
+        # )
+
+        # expected = np.array([5., 3., 1., 9., 4., 6., 2., 7., 8.])
+        # np.testing.assert_almost_equal(target.x, expected)
+
+        # target.update(1.0)
+        # expected = np.array([15., 10.5, 11., 11., 11., 14., 2., 7., 8.])
+        # np.testing.assert_almost_equal(target.x, expected)
+
+
     def test_ModelEvaluator(self):
 
         eval = models.ModelEvaluator(
@@ -198,7 +245,8 @@ class TestModels(unittest.TestCase):
             ),
             models.SingerTarget(
                 tm=10.0,
-                sm=15.0
+                sm=15.0,
+                SD=1
             ),
             R=np.diag([150**2]),
             sensor=sensors.BaseSensor(dT=1)
@@ -217,7 +265,8 @@ class TestModels(unittest.TestCase):
             ),
             models.SingerTarget(
                 tm=10.0,
-                sm=15.0
+                sm=15.0,
+                SD=1
             ),
             R=np.diag([150**2, 5.**2]),
             sensor=sensors.BaseSensor(dT=1)

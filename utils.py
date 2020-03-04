@@ -2,8 +2,104 @@ import math
 import time
 import queue
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 import nlopt
+
+def cart2polar(vec_cart):
+    """ convert cartesian to polar
+
+    (X,Y,Z) -> (R,H,T) -> (R,H,V)
+
+        X:north
+        Y:east
+        Z:down
+
+        R:radial(distance)
+        H:horizontal(azimuth,yaw)
+        V:vertical(elevation,pitch)
+        T:theta=V+pi/2
+
+        R = +sqrt(X^2+Y^2+Z^2)
+        H = +arctan(Y/X)
+        V = -arcsin(Z/R) == T = +arccos(Z/R)
+    """
+    assert vec_cart.shape == (9,)
+    px, py, pz, vx, vy, vz, ax, ay, az = vec_cart[:]
+
+    # calc polar position
+    pr = + np.sqrt(px**2 + py**2 + pz**2)
+    ph = + np.arctan2(py,px)
+    pt = + np.arccos( pz/pr)
+    pv = - np.arcsin( pz/pr)
+
+    # calc rotate matrix
+    rot = Rotation.from_euler("ZY", [ph, pv])
+
+    # calc polar velocity
+    wr, wh, wt = rot.apply(np.array([vx, vy, vz]), inverse=True)
+    vr = wr
+    vh = wh/pr/np.sin(pt)
+    vt = wt/pr
+    vv = -vt
+
+    # calc polar acceleration
+    br, bh, bt = rot.apply(np.array([ax, ay, az]), inverse=True)
+    ar =  br + pr*vt**2           + pr*vh**2*np.sin(pt)**2
+    ah = (bh - 2*vr*vh*np.sin(pt) - 2*pr*vt*vh*np.cos(pt)          )/pr/np.sin(pt)
+    at = (bt - 2*vr*vt            + pr*vh**2*np.sin(pt)*np.cos(pt) )/pr
+    av = -at
+
+    return np.array([pr, ph, pv, vr, vh, vv, ar, ah, av])
+
+
+def polar2cart(vec_polar):
+    """ convert cartesian to polar
+
+    (R,H,V) -> (R,H,T) -> (X,Y,Z)
+
+        X:north
+        Y:east
+        Z:down
+
+        R:radial(distance)
+        H:horizontal(azimuth,yaw)
+        V:vertical(elevation,pitch)
+        T:theta=V+pi/2
+
+        X = +Rcos(V)cos(H) == +Rsin(T)cos(H)
+        Y = +Rcos(V)sin(H) == +Rsin(T)sin(H)
+        Z = -Rsin(V)       == +Rcos(T)
+    """
+    assert vec_polar.shape == (9,)
+    pr, ph, pv, vr, vh, vv, ar, ah, av = vec_polar[:]
+    assert -np.pi/2 < pv < +np.pi/2
+    pt = pv + np.pi/2
+    vt = -vv
+    at = -av
+
+    # calc cart position
+    px = pr*np.sin(pt)*np.cos(ph)
+    py = pr*np.sin(pt)*np.sin(ph)
+    pz = pr*np.cos(pt)
+
+    # calc rotate matrix
+    rot = Rotation.from_euler("ZY", [ph, pv])
+
+    # calc cart velocity
+    wr =    vr
+    wh = pr*vh*np.sin(pt)
+    wt = pr*vt
+    vx, vy, vz = rot.apply(np.array([wr, wh, wt]))
+
+    # calc cart acceleration
+    br =    ar            - pr*vt**2           - pr*vh**2*np.sin(pt)**2
+    bh = pr*ah*np.sin(pt) + 2*vr*vh*np.sin(pt) + 2*pr*vt*vh*np.cos(pt)
+    bt = pr*at            + 2*vr*vt            - pr*vh**2*np.sin(pt)*np.cos(pt)
+    ax, ay, az = rot.apply(np.array([br, bh, bt]))
+    
+    return np.array([px, py, pz, vx, vy, vz, ax, ay, az])
+
 
 def swap_block_matrix(mat, n_block):
     """
@@ -79,6 +175,9 @@ def calc_best_assignment_by_auction( score_matrix, is_maximized=True , is_verbos
     # i_max: current tracks(M) + new tracks(N)
     # j_max: observations(N)
     i_max, j_max = score_matrix.shape
+
+    if i_max==1 and j_max==1:
+        return (np.array([score_matrix[0,0]]), np.array([0], int))
     
     # supported only i_max >= j_max
     # if i_max < j_max, transpose matrix
