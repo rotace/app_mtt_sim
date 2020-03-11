@@ -200,6 +200,6 @@ class TestTrackers(unittest.TestCase):
             R=np.diag([0.001,0.001])
         )
 
-        # eval.plot_tgt_trk()
+        # eval.plot_position()
         eval.estimate_track_statistics()
         # np.testing.assert_almost_equal(RMSE.shape, (3,))

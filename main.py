@@ -50,10 +50,10 @@ class SimSample:
         time_m    = 2.0
         sigma_mx  = 4.0
         sigma_my  = 1.0
-
-        vx0 = np.random.normal(0.0, 18.0)
-        vy0 = np.random.normal(0.0,  4.0)
-
+        sigma_vx  = 18.0
+        sigma_vy  =  4.0
+        vx0 = np.random.normal(0.0, sigma_vx)
+        vy0 = np.random.normal(0.0, sigma_vy)
 
         eval = trackers.TrackerEvaluator(
             trackers.GNN(
@@ -68,7 +68,8 @@ class SimSample:
                     model=models.KalmanModel,
                     tm=time_m,
                     sm=[sigma_mx, sigma_my],
-                    SD=2
+                    SD=2,
+                    P0=np.diag([sigma_o**2, sigma_o**2, sigma_vx**2, sigma_vy**2])
                 ),
                 track_factory=tracks.BaseTrackFactory(
                     track=tracks.LLRTrack,
@@ -80,7 +81,7 @@ class SimSample:
                     x0=[0.0, 0.0, vx0, vy0],
                     SD=2),
             ],
-            R=np.diag([sigma_o, sigma_o])
+            R=np.diag([sigma_o**2, sigma_o**2])
         )
 
         return eval
@@ -101,6 +102,7 @@ class SimSample:
         time_m    = 2.5
         sigma_mx  = 25.
         sigma_my  = 2.0
+        target = SimSample.SinusoidTarget(A=9.0, Tp=3.5)
 
         eval = trackers.TrackerEvaluator(
             trackers.GNN(
@@ -115,17 +117,16 @@ class SimSample:
                     model=models.KalmanModel,
                     tm=time_m,
                     sm=[sigma_mx, sigma_my],
-                    SD=2
+                    SD=2,
+                    P0=np.diag([sigma_o**2, sigma_o**2, (target.A*target.omega)**2, (target.A*target.omega)**2])
                 ),
                 track_factory=tracks.BaseTrackFactory(
                     track=tracks.LLRTrack,
                     gate=None
                 )
             ),
-            tgt_list=[
-                SimSample.SinusoidTarget(A=9.0, Tp=3.5)
-            ],
-            R=np.diag([sigma_o, sigma_o])
+            tgt_list=[target],
+            R=np.diag([sigma_o**2, sigma_o**2])
         )
 
         return eval
@@ -134,8 +135,8 @@ def main():
     """
     Main Function
     """
-    eval = SimSample.generate_irst_example_p878()
-    eval.plot_tgt_trk(n_scan=10)
+    eval = SimSample.generate_irst_example_p372()
+    eval.plot_position(n_scan=10)
 
 if __name__ == '__main__':
     if (sys.flags.interactive != 1):

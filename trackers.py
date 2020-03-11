@@ -13,12 +13,16 @@ class BaseTracker():
 
     def __init__(self, sensor, model_factory, track_factory):
         self.sensor = sensor
-        self.model_factory = model_factory
         self.track_factory = track_factory
-        self.count = 0
+        self.timestamp = 0
+
+        self.track_factory.set_attr(
+            tracker=self,
+            model_factory=model_factory
+        )
 
     def update(self):
-        self.count += 1
+        self.timestamp += 1
         self.sensor.update()
 
     def _calc_score_matrix(self, hyp, obs_list):
@@ -97,7 +101,7 @@ class GNN(BaseTracker):
 
             else:
                 # create trackfile
-                self.trk_list.append( self.track_factory.create( obs_list[j_obs], self) )
+                self.trk_list.append( self.track_factory.create( obs_list[j_obs] ) )
 
         # update trackfile without observation
         for i_trk in unassign:
@@ -200,7 +204,7 @@ class JPDA(BaseTracker):
 
         # create trackfile of all observation
         for obs in obs_list:
-            self.trk_list.append( self.track_factory.create( obs, self ) )
+            self.trk_list.append( self.track_factory.create( obs ) )
 
         #---- track confirmation and deletion
         # TODO: implement track confirmation and deletion
@@ -270,7 +274,7 @@ class MHT(BaseTracker):
 
                 else:
                     # create trackfile
-                    child_hyp.trk_list.append( self.track_factory.create( obs_list[j_obs], self) )
+                    child_hyp.trk_list.append( self.track_factory.create( obs_list[j_obs] ) )
 
             # update trackfile without observation
             for i_trk in unassign:
@@ -373,7 +377,7 @@ class TrackerEvaluator():
 
         return (tracker, tgt_list, trk_list, trk_truth)
     
-    def plot_tgt_trk(self, n_scan=10):
+    def plot_position(self, n_scan=10):
         # init
         tracker, tgt_list = self._initialize_simulation()
         trk_scan_list = []
@@ -391,13 +395,21 @@ class TrackerEvaluator():
         plt.plot(
             [trk.model.x[0] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
             [trk.model.x[1] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
-            marker="D", color="r", alpha=.5, linestyle="None"
+            marker="D", color="r", alpha=.5, linestyle="None", label="trk"
+        )
+        plt.plot(
+            [trk.obs_list[-1].y[0] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
+            [trk.obs_list[-1].y[1] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
+            marker="D", color="g", alpha=.5, linestyle="None", label="obs"
         )
         plt.plot(
             [tgt.x[0] if tgt is not None else None for tgt_list in tgt_scan_list for tgt in tgt_list ],
             [tgt.x[1] if tgt is not None else None for tgt_list in tgt_scan_list for tgt in tgt_list ],
-            marker="D", color="b", alpha=.5, linestyle="None"
+            marker="D", color="b", alpha=.5, linestyle="None", label="tgt"
         )
+        plt.legend()
+        plt.axis("equal")
+        plt.grid()
         plt.show()
 
     def estimate_track_statistics(self, n_scan=10, n_run=10):

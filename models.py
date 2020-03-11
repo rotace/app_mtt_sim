@@ -6,52 +6,6 @@ from scipy.linalg import block_diag
 import sensors
 import utils
 
-
-def calc_ellipsoidal_gate(model, obs):
-    """Calc Ellipsoidal Gate
-
-        ref) Design and Analysis of Modern Tracking Systems
-                    6.3.2 Ellipsoidal Gates
-
-    Arguments:
-        model {KalmanModel} -- Kalman Model
-        obs {Obs} -- Observation
-    """
-    dy, S = model.residual(obs)
-    detS = np.linalg.det(S)
-    PD = obs.sensor.param["PD"]
-    COEF = (2*np.pi) ** (0.5*len(obs.y))
-    BETA = obs.sensor.param["BNT"] + obs.sensor.param["PFA"] / obs.sensor.param["VC"]
-    GATE = 2 * np.log( PD/(1-PD)/COEF/BETA/np.sqrt(detS) )
-    return (GATE, dy @ np.linalg.inv(S) @ dy, detS)
-
-
-def calc_ellipsoidal_gate_volume(model, obs, gate):
-    """Calc Ellipsoidal Gate Volume
-
-        ref) Design and Analysis of Modern Tracking Systems
-                    6.3.2 Ellipsoidal Gates
-
-    Arguments:
-        model {KalmanModel} -- Kalman Model
-        obs {Obs} -- Observation
-        gate {float} -- gate
-    """
-    # detS is not used obs
-    _, _, detS = calc_ellipsoidal_gate(model, obs)
-
-    if len(obs.y) == 1:
-        CM = 2
-    elif len(obs.y) == 2:
-        CM = np.pi
-    elif len(obs.y) == 3:
-        CM = 4*np.pi/3
-    elif len(obs.y) == 4:
-        CM =   np.pi**2/2
-    
-    return CM * np.sqrt(detS) * gate ** (0.5 * len(obs.y))
-
-
 class CoordType(enum.Enum):
     CART = enum.auto() # 3.7.2 Cartesian Coordinate Tracking (NED system)
     POLAR = enum.auto() # 3.7.3 Spherical/Sensor Coordinate Tracking (RHV system)
@@ -228,7 +182,7 @@ class KalmanModel():
             self._predict_step()
 
     def residual(self, obs):
-        """ Residual
+        """ Residual Vector
 
         dy = y - H*x
         S = H*P*H' + R
@@ -239,17 +193,50 @@ class KalmanModel():
         S = self.H @ self.P @ self.H.T + obs.R
         return (dy, S)
 
+    def norm_of_residual(self, obs):
+        """ Norm(d^2) of Residual Vector
+        d^2 = dy S^-1 dy
+        """
+        dy, S = self.residual(obs)
+        dist = dy @ np.linalg.inv(S) @ dy
+        detS = np.linalg.det(S)
+        M = len(dy)
+        return (dist, detS, M)
+
     def gaussian_log_likelihood(self, obs):
         """ Gaussian log Likelihood Function
         
         ref) Design and Analysis of Modern Tracking Systems
                     6.6.2 Extension to JPDA
         """
-        dy, S = self.residual(obs)
-        log_gij = -0.5 * dy @ np.linalg.inv(S) @ dy
+        dist, detS, _ = self.norm_of_residual(obs)
+        log_gij  = -0.5 * dist - np.log( np.sqrt(detS))
         log_gij += -0.5 * len(obs.y) * np.log(2*np.pi)
-        log_gij += -np.log( np.sqrt(np.linalg.det(S)) )
         return log_gij
+    
+    def volume_of_ellipsoidal_gate(self, obs, gate):
+        """Calc Ellipsoidal Gate Volume
+
+        ref) Design and Analysis of Modern Tracking Systems
+                    6.3.2 Ellipsoidal Gates
+
+        Arguments:
+            model {KalmanModel} -- Kalman Model
+            obs {Obs} -- Observation
+            gate {float} -- gate
+        """
+        _, S = self.residual(obs)
+
+        if len(obs.y) == 1:
+            CM = 2
+        elif len(obs.y) == 2:
+            CM = np.pi
+        elif len(obs.y) == 3:
+            CM = 4*np.pi/3
+        elif len(obs.y) == 4:
+            CM =   np.pi**2/2
+        
+        return CM * np.sqrt(np.linalg.det(S)) * gate ** (0.5 * len(obs.y))
 
     def _inovate_step(self, R):
         """Inovate Step
@@ -324,7 +311,7 @@ class PDAKalmanModel(KalmanModel):
 class ModelFactory():
     """ Base ModelFactory """
 
-    def __init__(self, model, SD=2, RD=2, P0=None, is_polar=False, is_vel_measure_enabled=False):
+    def __init__(self, model, SD=2, RD=2, P0=np.array([0.]), is_polar=False, is_vel_measure_enabled=False):
         assert 1 <= SD <= 3
         assert 2 <= RD <= 3
 
@@ -366,7 +353,7 @@ class SimpleModelFactory(ModelFactory):
       * Cart 2D Model (cart-x, cart-y), x=(px, py, vx, vy), y=(px, py)
       * Polar 2D Model (range, theta), x=(pr, pt, vr, vt), y=(pr, pt)
     """
-    def __init__(self, model, q, SD=2, RD=2, P0=None, is_polar=False, is_vel_measure_enabled=False):
+    def __init__(self, model, q, SD=2, RD=2, P0=np.array([0.]), is_polar=False, is_vel_measure_enabled=False):
         """
         Arguments:
         tm {float} -- target maneuver time constant
@@ -424,12 +411,12 @@ class SimpleModelFactory(ModelFactory):
         F = utils.swap_block_matrix( block_diag( *tuple([F   for i   in     range(self.SD)        ]) ), self.SD )
         Q = utils.swap_block_matrix( block_diag( *tuple([Q*q for i,q in zip(range(self.SD),self.q)]) ), self.SD )
 
-        if self.P0:
-            P = self.P0
-        else:
-            P = np.zeros( (self.XD, self.XD) )
-            P[0:self.YD, 0:self.YD] = obs.R
-            P = np.maximum(P, Q)
+        P = np.zeros( (self.XD, self.XD) )
+        R = np.zeros( (self.XD, self.XD) )
+        P[:len(self.P0), :len(self.P0)] = self.P0
+        R[:self.YD, :self.YD] = obs.R
+        P = np.maximum(P, Q)
+        P = np.maximum(P, R)
         
         return self.model(x, F, H, P, Q, is_nonlinear=False, x_type=self._x_type, y_type=self._y_type)
 
@@ -455,7 +442,7 @@ class SingerModelFactory(ModelFactory):
     ref) Design and Analysis of Modern Tracking Systems
         4.2.1 Singer Acceleration Model
     """
-    def __init__(self, model, tm, sm, SD=2, P0=None, is_polar=False, is_vel_measure_enabled=False):
+    def __init__(self, model, tm, sm, SD=2, P0=np.array([0.]), is_polar=False, is_vel_measure_enabled=False):
         """
         Arguments:
         tm {float} -- target maneuver time constant
@@ -533,12 +520,12 @@ class SingerModelFactory(ModelFactory):
         F = utils.swap_block_matrix( block_diag( *tuple(F_list) ), self.SD )
         Q = utils.swap_block_matrix( block_diag( *tuple(Q_list) ), self.SD )
 
-        if self.P0:
-            P = self.P0
-        else:
-            P = np.zeros( (self.XD, self.XD) )
-            P[0:self.YD, 0:self.YD] = obs.R
-            P = np.maximum(P, Q)
+        P = np.zeros( (self.XD, self.XD) )
+        R = np.zeros( (self.XD, self.XD) )
+        P[:len(self.P0), :len(self.P0)] = self.P0
+        R[:self.YD, :self.YD] = obs.R
+        P = np.maximum(P, Q)
+        P = np.maximum(P, R)
         
         return self.model(x, F, H, P, Q, is_nonlinear=False, x_type=self._x_type, y_type=self._y_type)
 
@@ -578,8 +565,8 @@ class Target():
         x_common_type = list(set(x_tgt_type.val_type) & set(model._x_type.val_type))
         dx = model._x_type.extract_x(model.x, x_common_type) - x_tgt_type.extract_x(x_tgt, x_common_type)
         P  = model._x_type.extract_x(model.P, x_common_type)
-        norm_dist = dx @ np.linalg.inv(P) @ dx
-        return gate - norm_dist
+        dist = dx @ np.linalg.inv(P) @ dx
+        return gate - dist
 
     def is_in_gate(self, model):
         return self.calc_match_score(model) > 0
@@ -719,13 +706,13 @@ class ModelEvaluator():
     * Estimate Prediction Errors of posit/veloc/accel etc.
     """
 
-    def __init__(self, model_factory, target, R, sensor):
+    def __init__(self, sensor, model_factory, target, R):
         """
         Arguments:
+        sensor {Sensor} -- sensor
         model_factory {ModelFactory} -- model factory
         target {Target} -- target
         R {np.array} -- observation error covariance matrix
-        sensor {Sensor} -- sensor
         """
         self.model_factory = model_factory
         self.target = target

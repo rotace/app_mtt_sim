@@ -12,9 +12,27 @@ class BaseTrackFactory():
         self.param = kwargs
         self.track_id_counter = 0
 
-    def create(self, obs, tracker):
+    def set_attr(self, **kwargs):
+        if "model_factory" in kwargs:
+            self.model_factory = kwargs["model_factory"]
+        if "tracker" in kwargs:
+            self.tracker = kwargs["tracker"]
+
+    def create(self, obs):
         self.track_id_counter += 1
-        return self.track(obs, tracker, trk_id=self.track_id_counter, **self.param)
+
+        if hasattr(self, "tracker"):
+            timestamp = self.tracker.timestamp
+        else:
+            timestamp = 0
+
+        return self.track(
+            obs,
+            self.model_factory,
+            trk_id=self.track_id_counter,
+            timestamp=timestamp,
+            **self.param
+        )
 
     def calc_init_score(self, obs):
         return self.track.calc_init_score(obs)
@@ -24,22 +42,25 @@ class BaseTrackFactory():
 class BaseTrack():
     """ Track Base Class """
 
-    def __init__(self, obs, tracker, **kwargs):
+    def __init__(self, obs, model_factory, **kwargs):
         # set param
         if "gate" not in kwargs:
             kwargs["gate"] = None
         
         if "trk_id" not in kwargs:
             kwargs["trk_id"] = 0
+        
+        if "timestamp" not in kwargs:
+            kwargs["timestamp"] = 0
 
         self.param = kwargs
-        self.tracker = tracker
+        self.sensor = obs.sensor
         # set data
         self.obs_list = [copy.deepcopy(obs)]
         # self.mdl_list = [None]
-        self.cnt_list = [self.tracker.count]
+        self.cnt_list = [self.param["timestamp"]]
         # create model
-        self.model = self.tracker.model_factory.create(obs)
+        self.model = model_factory.create(obs)
         self.mdl_list = [copy.deepcopy(self.model)]
     
     def get_id(self):
@@ -49,7 +70,7 @@ class BaseTrack():
         # set data
         self.obs_list.append(copy.deepcopy(obs))
         self.mdl_list.append(copy.deepcopy(self.model))
-        self.cnt_list.append(self.tracker.count)
+        self.cnt_list.append(self.cnt_list[-1]+1)
         # update model
         self.model.update(obs)
 
@@ -57,15 +78,21 @@ class BaseTrack():
         # set data
         self.obs_list.append(None)
         self.mdl_list.append(copy.deepcopy(self.model))
-        self.cnt_list.append(self.tracker.count)
+        self.cnt_list.append(self.cnt_list[-1]+1)
         # update model
         self.model.update(None)
 
     def is_in_gate(self, obs):
-        gate, norm_dist, _ = models.calc_ellipsoidal_gate(self.model, obs)
+        dist, detS, M = self.model.norm_of_residual(obs)
+        gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
+
+        # TODO: remove gate calculation
         if self.param["gate"]:
             gate = self.param["gate"]
-        return gate > norm_dist
+        return gate > dist
+
+        # log_gij = self.model.gaussian_log_likelihood(obs)
+        # return obs.sensor.calc_match_dLLR(log_gij) > obs.sensor.calc_miss_dLLR()
 
     def calc_match_score(self, obs):
         raise NotImplementedError
@@ -94,24 +121,6 @@ class BaseTrack():
             marker="D", color="g", alpha=.5, linestyle="None"
         )
 
-    def plot_gate(self):
-        gate_list = [
-            models.calc_ellipsoidal_gate(mdl, obs)
-            if obs is not None else (None, None, None)
-            for mdl, obs in zip(self.mdl_list, self.obs_list)
-        ]
-        plt.plot(
-            self.cnt_list,
-            [ gate for gate, dist, detS in gate_list ],
-            marker="D", color="r", alpha=.5, linestyle="None"
-        )
-        plt.plot(
-            self.cnt_list,
-            [ dist  for gate, dist, detS in gate_list ],
-            marker="D", color="g", alpha=.5, linestyle="None"
-        )
-
-
 class DistTrack(BaseTrack):
     """ Distance Scored Track
 
@@ -121,16 +130,17 @@ class DistTrack(BaseTrack):
      * Use Kalman Filter
      * Use Generalized Distance as Score
     """
-    def __init__(self, obs, tracker, **kwargs):
-        super().__init__(obs, tracker, **kwargs)
+    def __init__(self, obs, model_factory, **kwargs):
+        super().__init__(obs, model_factory, **kwargs)
         
         # set param
         if "ND" not in self.param:
             self.param["ND"] = 5    # continuous miss number for delete
 
     def calc_match_score(self, obs):
-        gate, norm_dist, detS = models.calc_ellipsoidal_gate(self.model, obs)
-        return gate - norm_dist - np.log(detS)
+        dist, detS, M = self.model.norm_of_residual(obs)
+        gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
+        return gate - dist - np.log(detS)
 
     def judge_confirmation(self):
         return True
@@ -154,8 +164,8 @@ class LLRTrack(BaseTrack):
      * Use Kalman Filter
      * Use Log Likelihood Ratio as Score
     """
-    def __init__(self, obs, tracker, **kwargs):
-        super().__init__(obs, tracker, **kwargs)
+    def __init__(self, obs, model_factory, **kwargs):
+        super().__init__(obs, model_factory, **kwargs)
         self.scr_list = [self.calc_init_score(obs)]
         
         # set param
@@ -179,14 +189,11 @@ class LLRTrack(BaseTrack):
         super().unassign()
 
     def calc_match_score(self, obs):
-        dLk = np.log( obs.sensor.param["VC"] ) + self.model.gaussian_log_likelihood(obs)
-        dLs = np.log( obs.sensor.param["PD"] / obs.sensor.param["PFA"] )
-        return self.scr_list[-1] + dLk + dLs
+        log_gij = self.model.gaussian_log_likelihood(obs)
+        return self.scr_list[-1] + obs.sensor.calc_match_dLLR(log_gij)
 
     def _calc_miss_score(self):
-        dLk = 0
-        dLs = np.log( 1.0 - self.tracker.sensor.param["PD"] )
-        return self.scr_list[-1] + dLk + dLs
+        return self.scr_list[-1] + self.sensor.calc_miss_dLLR()
 
     def judge_confirmation(self):
         return self.scr_list[-1] > self.param["T2"]
@@ -198,10 +205,7 @@ class LLRTrack(BaseTrack):
     
     @staticmethod
     def calc_init_score(obs):
-        L0 = np.log( obs.sensor.param["BNT"] * obs.sensor.param["VC"] )
-        dLk = 0
-        dLs = np.log( obs.sensor.param["PD"] / obs.sensor.param["PFA"] )
-        return L0 + dLk + dLs
+        return obs.sensor.calc_LLR0()
 
     def plot_scr_list(self):
         plt.plot(
@@ -219,8 +223,8 @@ class PDALLRTrack(LLRTrack):
                     6.6.2 Extension to JPDA
                     6.6.4 PDA Track Initiation and Deletion
     """
-    def __init__(self, obs, tracker, **kwargs):
-        super().__init__(obs, tracker, **kwargs)
+    def __init__(self, obs, model_factory, **kwargs):
+        super().__init__(obs, model_factory, **kwargs)
         self.pt_list = [0.5]
 
         # set param
@@ -242,22 +246,22 @@ class PDALLRTrack(LLRTrack):
         for obs, ratio in obs_dict.items():
             if obs:
                 count += 1
-                vg = models.calc_ellipsoidal_gate_volume(self.model, obs, self.param["gate"] )
+                vg = self.model.volume_of_ellipsoidal_gate( obs, self.param["gate"] )
                 delta -= vg * np.exp( self.model.gaussian_log_likelihood(obs) )
             else:
                 pass
         if count:
-            delta /= count - self.tracker.sensor.param["PD"] * self.pt_list[-1]
+            delta /= count - self.sensor.param["PD"] * self.pt_list[-1]
             delta += 1.0
-            delta *= self.tracker.sensor.param["PD"]
+            delta *= self.sensor.param["PD"]
         else:
-            delta = self.tracker.sensor.param["PD"]
+            delta = self.sensor.param["PD"]
         ptkk = (1-delta)/(1-delta*self.pt_list[-1])*self.pt_list[-1]
         p22 = self.param["P22"]
 
         #  # set data
         self.obs_list.append(obs_dict)
-        self.cnt_list.append(self.tracker.count)
+        self.cnt_list.append(self.cnt_list[-1]+1)
         self.scr_list.append(score)
         self.pt_list.append( p22*ptkk + (1-p22)*(1-ptkk) )
         
@@ -276,3 +280,125 @@ class MultiSensorLLRTrack(BaseTrack):
     """
     def calc_match_score(self, obs):
         raise NotImplementedError
+
+
+
+class TrackEvaluator():
+    """ Evaluate Each Track
+    
+    * Evaluate Gating, Conformation, Deletion etc.
+    """
+    
+    def __init__(self, sensor, model_factory, track_factory, target, R):
+        """
+        Arguments:
+        sensor {Sensor} -- sensor
+        model_factory {ModelFactory} -- model factory
+        track_factory {TrackFactory} -- track factory
+        target {Target} -- target
+        R {np.array} -- observation error covariance matrix
+        """
+        self.track_factory = track_factory
+        self.track_factory.set_attr(model_factory=model_factory)
+        self.target = target
+        self.R = R
+        self.sensor = sensor
+
+    def _initialize_simulation(self):
+        self.tgt_list = []
+        self.obs_list = []
+        self.trk_list = []
+        tgt = self.target
+        obs = models.Obs(np.random.multivariate_normal(tgt.x[:len(self.R)], self.R), self.R, self.sensor)
+        trk = self.track_factory.create( obs )
+        assert tgt.x.shape == trk.model.x.shape, "target.x.shape and model.x.shape invalid, actual:" + str(tgt.x.shape) + str(trk.model.x.shape)
+        return (tgt, obs, trk)
+
+    def _update(self, tgt, obs, trk):
+        # update target
+        tgt.update(self.sensor.param["dT"])
+
+        # update observation
+        obs = models.Obs(np.random.multivariate_normal(tgt.x[:len(self.R)], self.R), self.R, self.sensor)
+
+        dist, detS, M = trk.model.norm_of_residual(obs)
+        gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
+        mch_scr = trk.calc_match_score(obs)
+        ini_scr = trk.calc_init_score(obs)
+
+        # track update
+        trk.assign(obs)
+        return (tgt, obs, trk, dict(dist=dist, gate=gate, mch_scr=mch_scr, ini_scr=ini_scr))
+
+    def plot_score(self, n_count=10):
+        # init
+        tgt, obs, trk = self._initialize_simulation()
+        data_tbl = []
+
+        # simulate
+        i_count = n_count
+        while i_count>0:
+            
+            tgt, obs, trk, data = self._update(tgt, obs, trk)
+            data_tbl.append( data )
+            i_count -= 1
+
+        dist_list = [ data.get("dist") for data in data_tbl ]
+        gate_list = [ data.get("gate") for data in data_tbl ]
+        mch_scr_list = [ data.get("mch_scr") for data in data_tbl ]
+        ini_scr_list = [ data.get("ini_scr") for data in data_tbl ]
+
+        _, (axU, axD) = plt.subplots(nrows=2, sharex=True)
+
+        axU.plot(dist_list, marker="D", label="dist")
+        axU.plot(gate_list, marker="D", label="gate")
+        axU.legend()
+
+        axD.plot(mch_scr_list, marker="D", label="match_score")
+        axD.plot(ini_scr_list, marker="D", label="init_score")
+        axD.legend()
+
+        plt.show()
+
+    # def plot_stat_score(self, n_count=10, n_run=10):
+    #     data_tbl_runs = []
+    #     i_run = n_run
+    #     while i_run>0:
+
+    #         # init
+    #         tgt, obs, trk = self._initialize_simulation()
+    #         data_tbl = []
+
+    #         # simulate
+    #         i_count = n_count
+    #         while i_count>0:
+                
+    #             tgt, obs, trk, data = self._update(tgt, obs, trk)
+    #             data_tbl.append( data )
+    #             i_count -= 1
+
+    #         data_tbl_runs.append( data_tbl )
+    #         i_run -= 1
+
+    #     # calc average
+    #     dist_list=[]
+    #     gate_list=[]
+    #     mch_scr_list=[]
+    #     ini_scr_list=[]
+    #     for ii in range(n_count):
+    #         dist_list.append( sum([data_tbl[ii].get("dist") for data_tbl in data_tbl_runs])/n_run )
+    #         gate_list.append( sum([data_tbl[ii].get("gate") for data_tbl in data_tbl_runs])/n_run )
+    #         mch_scr_list.append( sum([data_tbl[ii].get("mch_scr") for data_tbl in data_tbl_runs])/n_run )
+    #         ini_scr_list.append( sum([data_tbl[ii].get("ini_scr") for data_tbl in data_tbl_runs])/n_run )
+
+    #     _, (axU, axD) = plt.subplots(nrows=2, sharex=True)
+
+    #     axU.plot(dist_list, marker="D", label="dist")
+    #     axU.plot(gate_list, marker="D", label="gate")
+    #     axU.legend()
+
+    #     axD.plot(mch_scr_list, marker="D", label="match_score")
+    #     axD.plot(ini_scr_list, marker="D", label="init_score")
+    #     axD.legend()
+
+    #     plt.show()

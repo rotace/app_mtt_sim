@@ -236,40 +236,40 @@ class TestModels(unittest.TestCase):
     def test_ModelEvaluator(self):
 
         eval = models.ModelEvaluator(
-            models.SingerModelFactory(
+            sensor=sensors.BaseSensor(dT=1),
+            model_factory=models.SingerModelFactory(
                 models.KalmanModel,
                 tm=10.0,
                 sm=15.0,
                 SD=1,
                 is_vel_measure_enabled=False
             ),
-            models.SingerTarget(
+            target=models.SingerTarget(
                 tm=10.0,
                 sm=15.0,
                 SD=1
             ),
-            R=np.diag([150**2]),
-            sensor=sensors.BaseSensor(dT=1)
+            R=np.diag([150**2])
         )
 
         RMSE = eval.estimate_prediction_error()
         np.testing.assert_almost_equal(RMSE.shape, (3,))
 
         eval = models.ModelEvaluator(
-            models.SingerModelFactory(
+            sensor=sensors.BaseSensor(dT=1),
+            model_factory=models.SingerModelFactory(
                 models.KalmanModel,
                 tm=10.0,
                 sm=15.0,
                 SD=1,
                 is_vel_measure_enabled=True
             ),
-            models.SingerTarget(
+            target=models.SingerTarget(
                 tm=10.0,
                 sm=15.0,
                 SD=1
             ),
-            R=np.diag([150**2, 5.**2]),
-            sensor=sensors.BaseSensor(dT=1)
+            R=np.diag([150**2, 5.**2])
         )
 
         RMSE = eval.estimate_prediction_error()

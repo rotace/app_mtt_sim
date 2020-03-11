@@ -43,7 +43,7 @@ class TestTracks(unittest.TestCase):
             if k==0:
                 trk = tracks.DistTrack(
                     models.Obs(tgt[:2], np.eye(2), tracker.sensor ) ,
-                    tracker,
+                    tracker.model_factory,
                     ND=ND
                 )
                 
@@ -72,7 +72,6 @@ class TestTracks(unittest.TestCase):
         if False:
             # trk.plot_obs_list()
             # trk.plot_mdl_list()
-            trk.plot_gate()        
             plt.show()
 
 
@@ -112,7 +111,7 @@ class TestTracks(unittest.TestCase):
             if k==0:
                 trk = tracks.LLRTrack(
                     models.Obs(tgt[:2], np.eye(2), tracker.sensor ) ,
-                    tracker,
+                    tracker.model_factory,
                     PFD=PFD,
                     alpha=NFC/3600/NFA,
                     beta=0.1
@@ -141,7 +140,47 @@ class TestTracks(unittest.TestCase):
         if False:
             # trk.plot_obs_list()
             # trk.plot_mdl_list()
-            # trk.plot_gate()
             # trk.plot_scr_list()
             plt.plot([i for i in range(200)], np.array(com_list, int) - np.array(del_list, int))
             plt.show()
+
+
+    def test_TrackEvaluator(self):
+
+        scan_time = 1.0
+        sigma_o   = 1.0
+        time_m    = 2.0
+        sigma_mx  = 4.0
+        sigma_my  = 1.0
+        sigma_vx  = 18.0
+        sigma_vy  =  4.0
+        vx0 = np.random.normal(0.0, sigma_vx)
+        vy0 = np.random.normal(0.0, sigma_vy)
+
+        eval = tracks.TrackEvaluator(
+            sensor=sensors.BaseSensor(
+                dT=scan_time,
+                PD=0.7,
+                VC=1.0,
+                PFA=1e-6,
+                BNT=0.03
+            ),
+            model_factory=models.SingerModelFactory(
+                model=models.KalmanModel,
+                tm=time_m,
+                sm=[sigma_mx, sigma_my],
+                SD=2,
+                P0=np.diag([sigma_o**2, sigma_o**2, sigma_vx**2, sigma_vy**2])
+            ),
+            track_factory=tracks.BaseTrackFactory(
+                track=tracks.LLRTrack,
+                gate=None
+            ),
+            target=models.SimpleTarget(
+                x0=[0.0, 0.0, vx0, vy0],
+                SD=2
+            ),
+            R=np.diag([sigma_o**2, sigma_o**2])
+        )
+
+        # eval.plot_score()
