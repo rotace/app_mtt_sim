@@ -133,6 +133,9 @@ class Obs():
             R {np.ndarray} -- sensor value variance matrix
             sensor {Sensor} -- sensor
         """
+        assert isinstance(y, np.ndarray) or isinstance(y, float) ,type(y)
+        assert isinstance(R, np.ndarray) or isinstance(R, float), type(R)
+        assert isinstance(sensor, sensors.BaseSensor) or sensor is None, type(sensor)
         self.y = y
         self.R = R
         self.sensor = sensor

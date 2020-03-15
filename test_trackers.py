@@ -180,7 +180,10 @@ class TestTrackers(unittest.TestCase):
                     PD=0.7,
                     VC=1.0,
                     PFA=1e-6,
-                    BNT=0.03
+                    BNT=0.03,
+                    y_mins=[-250,-250],
+                    y_maxs=[+250,+250],
+                    y_stps=[1,1]
                 ),
                 model_factory=models.SimpleModelFactory(
                     model=models.KalmanModel,

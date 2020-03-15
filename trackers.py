@@ -1,5 +1,6 @@
 import copy
 import numpy as np
+from scipy import integrate, interpolate, stats
 import matplotlib.pyplot as plt
 
 import utils
@@ -345,20 +346,48 @@ class TrackerEvaluator():
         return S
     
     def _update(self, tracker, tgt_list):
+        assert "PD" in self.sensor.param
+        assert "PFA" in self.sensor.param
+        assert "y_mins" in self.sensor.param
+        assert "y_maxs" in self.sensor.param
+        assert "y_stps" in self.sensor.param
+
+        # sensor characteristics
+        PD = self.sensor.param["PD"]
+        PFA= self.sensor.param["PFA"]
+        y_mins = self.sensor.param["y_mins"]
+        y_maxs = self.sensor.param["y_maxs"]
+        y_stps = self.sensor.param["y_stps"]
+        n_mesh = int(np.prod([ abs((y_max-y_min)/y_stp) for y_min, y_max, y_stp in zip(y_mins, y_maxs, y_stps) ]))
+
         # count targets
         n_tgt = len(tgt_list)
         
+        # init observation
+        obs_list = []
+
+        # add target observation
+        obs_list.extend([
+            models.Obs(
+                np.random.multivariate_normal(tgt.x[:len(self.R)], self.R),
+                self.R,
+                tracker.sensor
+            )
+            for tgt in tgt_list if tgt.is_exist() and np.random.choice([True, False], p=[PD, 1-PD])
+        ])
+        
+        # add false alarm observation
+        obs_list.extend([
+            models.Obs(
+                np.array([ np.random.uniform(y_min, y_max) for y_min, y_max in zip(y_mins, y_maxs) ]),
+                self.R,
+                tracker.sensor
+            )
+            for k in range(stats.binom.rvs(n=n_mesh, p=PFA))
+        ])
+
         # register scan data
-        trk_list = tracker.register_scan(
-            [
-                models.Obs(
-                    np.random.multivariate_normal(tgt.x[:len(self.R)], self.R),
-                    self.R,
-                    tracker.sensor
-                )
-                for tgt in tgt_list if tgt.is_exist()
-            ]
-        )
+        trk_list = tracker.register_scan(obs_list)
 
         # tgt_list update
         [ tgt.update(self.sensor.param["dT"]) for tgt in tgt_list ]
@@ -375,38 +404,48 @@ class TrackerEvaluator():
             else:
                 trk_truth[n_tgt] += 1
 
-        return (tracker, tgt_list, trk_list, trk_truth)
+        return (tracker, tgt_list, trk_list, obs_list, trk_truth)
     
-    def plot_position(self, n_scan=10):
+    def plot_position(self, n_scan=10, is_all_obs_displayed=False):
         # init
         tracker, tgt_list = self._initialize_simulation()
         trk_scan_list = []
         tgt_scan_list = []
+        obs_scan_list = []
 
         # simulate
         i_scan = n_scan
         while i_scan>0:
 
-            tracker, tgt_list, trk_list, _ = self._update(tracker, tgt_list)
-            trk_scan_list.append( copy.deepcopy(trk_list) )
+            tracker, tgt_list, trk_list, obs_list, _ = self._update(tracker, tgt_list)
             tgt_scan_list.append( copy.deepcopy(tgt_list) )
+            trk_scan_list.append( copy.deepcopy(trk_list) )
+            obs_scan_list.append( copy.deepcopy(obs_list) )
             i_scan -= 1
 
-        plt.plot(
-            [trk.model.x[0] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
-            [trk.model.x[1] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
-            marker="D", color="r", alpha=.5, linestyle="None", label="trk"
-        )
-        plt.plot(
-            [trk.obs_list[-1].y[0] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
-            [trk.obs_list[-1].y[1] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
-            marker="D", color="g", alpha=.5, linestyle="None", label="obs"
-        )
+
         plt.plot(
             [tgt.x[0] if tgt is not None else None for tgt_list in tgt_scan_list for tgt in tgt_list ],
             [tgt.x[1] if tgt is not None else None for tgt_list in tgt_scan_list for tgt in tgt_list ],
             marker="D", color="b", alpha=.5, linestyle="None", label="tgt"
         )
+        plt.plot(
+            [trk.model.x[0] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
+            [trk.model.x[1] if trk is not None else None for trk_list in trk_scan_list for trk in trk_list ],
+            marker="D", color="r", alpha=.5, linestyle="None", label="trk"
+        )
+        if is_all_obs_displayed:
+            plt.plot(
+                [obs.y[0] for obs_list in obs_scan_list for obs in obs_list ],
+                [obs.y[1] for obs_list in obs_scan_list for obs in obs_list ],
+                marker="D", color="g", alpha=.5, linestyle="None", label="obs"
+            )
+        else:
+            plt.plot(
+                [trk.obs_list[-1].y[0] if trk is not None and trk.obs_list[-1] is not None else None for trk_list in trk_scan_list for trk in trk_list ],
+                [trk.obs_list[-1].y[1] if trk is not None and trk.obs_list[-1] is not None else None for trk_list in trk_scan_list for trk in trk_list ],
+                marker="D", color="g", alpha=.5, linestyle="None", label="obs"
+            )
         plt.legend()
         plt.axis("equal")
         plt.grid()
@@ -416,6 +455,7 @@ class TrackerEvaluator():
         """ estimate track statictics
 
         ref) Design and Analysis of Modern Tracking Systems
+        13.3.3 SPRT Analysis of Track Confirmation
         13.6.2 Computation of Track Statictics
         """
         trk_truth_tbl_runs = []
@@ -430,15 +470,58 @@ class TrackerEvaluator():
             i_scan = n_scan
             while i_scan>0:
 
-                tracker, tgt_list, _, trk_truth = self._update(tracker, tgt_list)
+                tracker, tgt_list, _, _, trk_truth = self._update(tracker, tgt_list)
                 trk_truth_tbl.append( trk_truth )
                 i_scan -= 1
 
             trk_truth_tbl_runs.append( trk_truth_tbl )
             i_run -= 1
 
-        # TODO: calc statistics below
+        # calc statistics
         # * Cumulative probability of track confirmation (Nc :comfirmation)
-        # *            Probability of current confirmed track (Nm :maintenance)
+        # *            probability of current confirmed track (Nm :maintenance)
         # * Kinematic error means and standard deviation (Na)
-        return trk_truth_tbl_runs
+        n_tgt = len(tgt_list)
+        Na = np.zeros((n_tgt, n_scan))
+        Nc = np.zeros((n_tgt, n_scan))
+        Nm = np.zeros((n_tgt, n_scan))
+        for trk_truth_tbl in trk_truth_tbl_runs:
+            gg = np.zeros((n_tgt, n_scan))
+            xc = np.zeros((n_tgt, n_scan))
+            xm = np.zeros((n_tgt, n_scan))
+            for k_scan, trk_truth in enumerate(trk_truth_tbl):
+                for i_tgt in range(n_tgt):
+                    #  g(i,k): a confirmed track is associated with target i on scan k
+                    gg[i_tgt, k_scan] = trk_truth[i_tgt] > 0
+                    # xc(i,k): a confirmed track is or has previously been associated with target i
+                    xc[i_tgt, k_scan] = np.any(gg[i_tgt, :k_scan])
+                    # xm(i,k): a confirmed track is currently associated with target i and xc(i,k)=1
+                    xm[i_tgt, k_scan] = gg[i_tgt, k_scan] and xc[i_tgt, k_scan]
+
+                    Na[i_tgt, k_scan] += gg[i_tgt, k_scan]
+                    Nc[i_tgt, k_scan] += xc[i_tgt, k_scan]
+                    Nm[i_tgt, k_scan] += xm[i_tgt, k_scan]
+
+        # * The expected time to track confirmation (Tc)
+        # * The time at which 90% of tracks were confirmed (T90)
+        Tc = np.zeros((n_tgt,))
+        T90 = np.zeros((n_tgt,))
+        for i_tgt in range(n_tgt):
+            # Tc =   E(X): expected value of random value X
+            # FX = CDF(x): cumulative density function
+            #       QF(x): quantile function
+            x = np.array(range(n_scan)) * self.sensor.param["dT"]
+            FX = Nc[i_tgt, :]/n_run
+            # Tc = E(X) = integral( 1-CDF(x) )
+            Tc[i_tgt] = integrate.simps(1.0-FX, x)
+            # T90 = QF(x=90) = CDF^-1(y=90)
+            T90[i_tgt] = interpolate.interp1d(FX, x, fill_value="extrapolate")(0.9)
+
+        result = dict()
+        result["Na"] = Na
+        result["Nc"] = Nc
+        result["Nm"] = Nm
+        result["Tc"] = Tc
+        result["T90"] = T90
+
+        return result
