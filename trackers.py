@@ -311,11 +311,22 @@ class TrackerEvaluator():
         13.6 MTT System Evaluation Metrics
     """
 
-    def __init__(self, tracker, tgt_list, R):
+    def __init__(self, tracker, tgt_list, R, PD=None, PFA=None):
         self.tracker = tracker
         self.tgt_list = tgt_list
-        self.R = R
         self.sensor = tracker.sensor
+
+        self.R = R
+
+        if PD is None:
+            self.PD = self.sensor.param["PD"]
+        else:
+            self.PD = PD
+
+        if PFA is None:
+            self.PFA= self.sensor.param["PFA"]
+        else:
+            self.PFA = PFA
 
     def _initialize_simulation(self):
         return (copy.deepcopy(self.tracker), copy.deepcopy(self.tgt_list))
@@ -344,17 +355,18 @@ class TrackerEvaluator():
                 for trk in trk_list
             ]
         return S
+
+    def _update_sim_param(self, i_scan):
+        # user can change sim parameter R, PD, PFA
+        pass
     
-    def _update(self, tracker, tgt_list):
-        assert "PD" in self.sensor.param
-        assert "PFA" in self.sensor.param
+    def _update(self, tracker, tgt_list, i_scan=None):
         assert "y_mins" in self.sensor.param
         assert "y_maxs" in self.sensor.param
         assert "y_stps" in self.sensor.param
 
         # sensor characteristics
-        PD = self.sensor.param["PD"]
-        PFA= self.sensor.param["PFA"]
+        self._update_sim_param(i_scan)
         y_mins = self.sensor.param["y_mins"]
         y_maxs = self.sensor.param["y_maxs"]
         y_stps = self.sensor.param["y_stps"]
@@ -373,7 +385,7 @@ class TrackerEvaluator():
                 self.R,
                 tracker.sensor
             )
-            for tgt in tgt_list if tgt.is_exist() and np.random.choice([True, False], p=[PD, 1-PD])
+            for tgt in tgt_list if tgt.is_exist() and np.random.choice([True, False], p=[self.PD, 1-self.PD])
         ])
         
         # add false alarm observation
@@ -383,7 +395,7 @@ class TrackerEvaluator():
                 self.R,
                 tracker.sensor
             )
-            for k in range(stats.binom.rvs(n=n_mesh, p=PFA))
+            for k in range(stats.binom.rvs(n=n_mesh, p=self.PFA))
         ])
 
         # register scan data
@@ -414,14 +426,12 @@ class TrackerEvaluator():
         obs_scan_list = []
 
         # simulate
-        i_scan = n_scan
-        while i_scan>0:
+        for i_scan in range(n_scan):
 
             tracker, tgt_list, trk_list, obs_list, _ = self._update(tracker, tgt_list)
             tgt_scan_list.append( copy.deepcopy(tgt_list) )
             trk_scan_list.append( copy.deepcopy(trk_list) )
             obs_scan_list.append( copy.deepcopy(obs_list) )
-            i_scan -= 1
 
 
         plt.plot(
@@ -459,23 +469,19 @@ class TrackerEvaluator():
         13.6.2 Computation of Track Statictics
         """
         trk_truth_tbl_runs = []
-        i_run = n_run
-        while i_run>0:
+        for i_run in range(n_run):
 
             # init
             tracker, tgt_list = self._initialize_simulation()
             trk_truth_tbl = []
 
             # simulate
-            i_scan = n_scan
-            while i_scan>0:
+            for i_scan in range(n_scan):
 
-                tracker, tgt_list, _, _, trk_truth = self._update(tracker, tgt_list)
+                tracker, tgt_list, _, _, trk_truth = self._update(tracker, tgt_list, i_scan)
                 trk_truth_tbl.append( trk_truth )
-                i_scan -= 1
 
             trk_truth_tbl_runs.append( trk_truth_tbl )
-            i_run -= 1
 
         # calc statistics
         # * Cumulative probability of track confirmation (Nc :comfirmation)
@@ -518,9 +524,9 @@ class TrackerEvaluator():
             T90[i_tgt] = interpolate.interp1d(FX, x, fill_value="extrapolate")(0.9)
 
         result = dict()
-        result["Na"] = Na
-        result["Nc"] = Nc
-        result["Nm"] = Nm
+        result["Na"] = Na/n_run
+        result["Nc"] = Nc/n_run
+        result["Nm"] = Nm/n_run
         result["Tc"] = Tc
         result["T90"] = T90
 

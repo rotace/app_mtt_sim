@@ -10,22 +10,6 @@ import tracks
 import sensors
 import trackers
 
-class SinusoidTarget(models.Target):
-    def __init__(self, A, Tp):
-        super().__init__()
-        self.A = A
-        self.omega = 2*np.pi/Tp
-    
-    def update_x(self, T, dT):
-        self.x = np.array([
-            +self.A * np.sin(self.omega * T),
-            +0.0,
-            +self.A * np.cos(self.omega * T) * self.omega,
-            +0.0,
-            -self.A * np.sin(self.omega * T) * self.omega**2,
-            +0.0
-        ])
-
 def generate_irst_example_p878(PD=0.7, PFA=1e-6):
     """ IRST example of p.878
 
@@ -46,7 +30,7 @@ def generate_irst_example_p878(PD=0.7, PFA=1e-6):
     vy0 = np.random.normal(0.0, sigma_vy)
 
     gnn = trackers.TrackerEvaluator(
-        trackers.GNN(
+        tracker=trackers.GNN(
             sensor=sensors.BaseSensor(
                 dT=scan_time,
                 PD=PD,
@@ -55,8 +39,8 @@ def generate_irst_example_p878(PD=0.7, PFA=1e-6):
                 BNT=0.03,
                 # y_mins=[-44880,-250],
                 # y_maxs=[+44880,+250],
-                y_mins=[-1125,-250], # calc load reduction
-                y_maxs=[+1125,+250], # calc load reduction
+                y_mins=[-1125,-250], # reduce calculation load
+                y_maxs=[+1125,+250], # reduce calculation load
                 y_stps=[1,1]
             ),
             model_factory=models.SingerModelFactory(
@@ -92,7 +76,38 @@ def generate_irst_example_p878(PD=0.7, PFA=1e-6):
 
     return gnn
 
-def generate_irst_example_p372():
+
+class TrackerEvaluatorForP372(trackers.TrackerEvaluator):
+    def __init__(self, tracker, tgt_list, R, PD, PFA):
+        super().__init__(tracker, tgt_list, R)
+        self.PD_after_10 = PD
+        self.PFA_after_10 = PFA
+
+    def _update_sim_param(self, i_scan):
+        if i_scan is not None and i_scan < 10:
+            self.PD = 1.0
+            self.PFA = 10**-4
+        else:
+            self.PD = self.PD_after_10
+            self.PFA = self.PFA_after_10
+
+class SinusoidTarget(models.Target):
+    def __init__(self, A, Tp):
+        super().__init__()
+        self.A = A
+        self.omega = 2*np.pi/Tp
+    
+    def update_x(self, T, dT):
+        self.x = np.array([
+            +self.A * np.sin(self.omega * T),
+            +0.0,
+            +self.A * np.cos(self.omega * T) * self.omega,
+            +0.0,
+            -self.A * np.sin(self.omega * T) * self.omega**2,
+            +0.0
+        ])
+
+def generate_irst_example_p372(PD=0.7, PFA=1e-6, is_maneuver_enabled=True):
     """ IRST example of p.372
 
     unit is pixcel (=70urad)
@@ -101,26 +116,31 @@ def generate_irst_example_p372():
     6.8.2 Simulation Study Results
     """
 
-
     scan_time = 1.0
     sigma_o   = 1.0
     time_m    = 2.5
-    sigma_mx  = 25.
-    sigma_my  = 2.0
-    target = SinusoidTarget(A=9.0, Tp=3.5)
 
-    gnn = trackers.TrackerEvaluator(
-        trackers.GNN(
+    if is_maneuver_enabled:
+        target = SinusoidTarget(A=9.0, Tp=3.5)
+        sigma_mx  = 25.0
+        sigma_my  = 2.0
+    else:
+        target = SinusoidTarget(A=0.0, Tp=3.5)
+        sigma_mx  = 5.0
+        sigma_my  = 2.0
+
+    gnn = TrackerEvaluatorForP372(
+        tracker=trackers.GNN(
             sensor=sensors.BaseSensor(
                 dT=scan_time,
-                PD=0.7,
+                PD=PD,
                 VC=1.0,
-                PFA=1e-6,
+                PFA=PFA,
                 BNT=0.03,
                 # y_mins=[-44880,-250],
                 # y_maxs=[+44880,+250],
-                y_mins=[-50,-50], # calc load reduction
-                y_maxs=[+50,+50], # calc load reduction
+                y_mins=[-50,-50], # reduce calculation load
+                y_maxs=[+50,+50], # reduce calculation load
                 y_stps=[1,1]
             ),
             model_factory=models.SingerModelFactory(
@@ -136,7 +156,9 @@ def generate_irst_example_p372():
             )
         ),
         tgt_list=[target],
-        R=np.diag([sigma_o**2, sigma_o**2])
+        R=np.diag([sigma_o**2, sigma_o**2]),
+        PD=PD,
+        PFA=PFA
     )
 
     return gnn

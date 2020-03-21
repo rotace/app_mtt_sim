@@ -20,8 +20,8 @@ class BaseSensor():
         if "BNT" not in kwargs:
             kwargs["BNT"] = 0.03
 
-        kwargs["PNT"] = kwargs["BNT"]*kwargs["VC"]
-        kwargs["BFT"] = kwargs["PFA"]/kwargs["VC"]
+        kwargs["PNT"] = kwargs["BNT"] * kwargs["VC"]
+        kwargs["BFT"] = kwargs["PFA"] / kwargs["VC"]
         kwargs["BETA"] = kwargs["BNT"] + kwargs["BFT"]
         
         self.param = kwargs
