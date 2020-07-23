@@ -26,23 +26,20 @@ class BaseTracker():
         self.timestamp += 1
         self.sensor.update()
 
-    def _calc_score_matrix(self, hyp, obs_list):
+    def _calc_price_matrix(self, hyp, obs_list):
         # init
         M = len(hyp.trk_list)
         N = len(obs_list)
         S = np.empty( (M + N, N) )
         S.fill(IGNORE_THRESH)
         
-        # set new or false target score
-        S[range(M, M + N), range(N)] = [
-            self.track_factory.calc_init_score(obs)
-            for obs in obs_list
-        ]
+        # set new or false target price
+        S[range(M, M + N), range(N)] = [ 0 for obs in obs_list ]
         
-        # set match score
+        # set match price
         for i, trk in enumerate(hyp.trk_list):
             S[i, range(N)] = [
-                trk.calc_match_score(obs)
+                trk.calc_match_price(obs)
                 if trk.is_in_gate(obs) else IGNORE_THRESH
                 for obs in obs_list
             ]
@@ -77,12 +74,12 @@ class GNN(BaseTracker):
             if not obs.sensor:
                 obs.sensor = self.sensor
 
-        #---- calc score
+        #---- calc price
 
         # init
         M = len(self.trk_list)
         N = len(obs_list)
-        S = self._calc_score_matrix(self, obs_list)
+        S = self._calc_price_matrix(self, obs_list)
 
         #---- calc association
 
@@ -140,12 +137,12 @@ class JPDA(BaseTracker):
             if not obs.sensor:
                 obs.sensor = self.sensor
 
-        #---- calc score
+        #---- calc price
 
         # init
         M = len(self.trk_list)
         N = len(obs_list)
-        S = self._calc_score_matrix(self, obs_list)
+        S = self._calc_price_matrix(self, obs_list)
 
         #---- calc association
         assign_idx_hyp_list = utils.calc_n_best_assignments_by_murty(S, IGNORE_THRESH, 10)
@@ -169,39 +166,39 @@ class JPDA(BaseTracker):
             hyp_assign_dict_list.append(hyp_assign_dict)
 
         
-        hyp_log_score_list = []
+        hyp_log_price_list = []
         for hyp_assign_dict in hyp_assign_dict_list:
 
             if N-M>0:
-                hyp_log_score = np.log( self.sensor.param["BETA"] ) *(N-M)
+                hyp_log_price = np.log( self.sensor.param["BETA"] ) *(N-M)
             elif M-N>0:
-                hyp_log_score = np.log(1-self.sensor.param["PD"]) *(M-N)
+                hyp_log_price = np.log(1-self.sensor.param["PD"]) *(M-N)
             else:
-                hyp_log_score = 0
+                hyp_log_price = 0
 
             for trk, obs in hyp_assign_dict.items():
                 if obs:
-                    hyp_log_score += np.log(self.sensor.param["PD"])
-                    hyp_log_score += trk.model.gaussian_log_likelihood(obs)
+                    hyp_log_price += np.log(self.sensor.param["PD"])
+                    hyp_log_price += trk.model.gaussian_log_likelihood(obs)
                 else:
-                    hyp_log_score += np.log(1-self.sensor.param["PD"])
-                    hyp_log_score += np.log(self.sensor.param["BETA"])
+                    hyp_log_price += np.log(1-self.sensor.param["PD"])
+                    hyp_log_price += np.log(self.sensor.param["BETA"])
 
-            hyp_log_score_list.append(hyp_log_score)
+            hyp_log_price_list.append(hyp_log_price)
         
-        hyp_score_list = np.exp(np.array(hyp_log_score_list))
-        self.hyp_score_list = hyp_score_list
+        hyp_price_list = np.exp(np.array(hyp_log_price_list))
+        self.hyp_price_list = hyp_price_list
 
         # update trackfile with related observation
         for trk in self.trk_list:
-            assign_score_dict = {}
-            for normed_hyp_score, hyp_assign_dict in zip(hyp_score_list/hyp_score_list.sum(), hyp_assign_dict_list):
+            assign_price_dict = {}
+            for normed_hyp_price, hyp_assign_dict in zip(hyp_price_list/hyp_price_list.sum(), hyp_assign_dict_list):
                 obs = hyp_assign_dict[trk]
-                if obs in assign_score_dict:
-                    assign_score_dict[obs] += normed_hyp_score
+                if obs in assign_price_dict:
+                    assign_price_dict[obs] += normed_hyp_price
                 else:
-                    assign_score_dict[obs] = normed_hyp_score
-            trk.assign( assign_score_dict )
+                    assign_price_dict[obs] = normed_hyp_price
+            trk.assign( assign_price_dict )
 
         # create trackfile of all observation
         for obs in obs_list:
@@ -248,10 +245,10 @@ class MHT(BaseTracker):
         # TODO implement fast algorithm (p.366)
         new_hyp_list = []
         for hyp in self.hyp_list:
-            S = self._calc_score_matrix(hyp, obs_list)
+            S = self._calc_price_matrix(hyp, obs_list)
             new_hyp_list += [
-                (scores, assign, hyp)
-                for scores, assign
+                (prices, assign, hyp)
+                for prices, assign
                 in utils.calc_n_best_assignments_by_murty(S, IGNORE_THRESH, 10)
             ]
 
@@ -332,8 +329,8 @@ class TrackerEvaluator():
         return (copy.deepcopy(self.tracker), copy.deepcopy(self.tgt_list))
 
     @staticmethod
-    def _calc_score_matrix(tgt_list, trk_list):
-        """ calc score matrix between target and track
+    def _calc_price_matrix(tgt_list, trk_list):
+        """ calc price matrix between target and track
 
         ref) Design and Analysis of Modern Tracking Systems
         13.6.1 Track-to-Truth Assignment
@@ -344,13 +341,13 @@ class TrackerEvaluator():
         S = np.empty( (M + N, N) )
         S.fill(IGNORE_THRESH)
         
-        # set extra track score
+        # set extra track price
         S[range(M, M + N), range(N)] = [0.0]*N
         
-        # set match score
+        # set match price
         for i, tgt in enumerate(tgt_list):
             S[i, range(N)] = [
-                tgt.calc_match_score(trk.model)
+                tgt.calc_match_price(trk.model)
                 if tgt.is_in_gate(trk.model) else IGNORE_THRESH
                 for trk in trk_list
             ]
@@ -405,7 +402,7 @@ class TrackerEvaluator():
         [ tgt.update(self.sensor.param["dT"]) for tgt in tgt_list ]
 
         # calc MOF (Measure of Fit) and assignment
-        S = self._calc_score_matrix(tgt_list, trk_list)
+        S = self._calc_price_matrix(tgt_list, trk_list)
         _, assign = utils.calc_best_assignment_by_auction(S)
 
         # create track to truth assignment table
@@ -512,16 +509,20 @@ class TrackerEvaluator():
         # * The time at which 90% of tracks were confirmed (T90)
         Tc = np.zeros((n_tgt,))
         T90 = np.zeros((n_tgt,))
-        for i_tgt in range(n_tgt):
-            # Tc =   E(X): expected value of random value X
-            # FX = CDF(x): cumulative density function
-            #       QF(x): quantile function
-            x = np.array(range(n_scan)) * self.sensor.param["dT"]
-            FX = Nc[i_tgt, :]/n_run
-            # Tc = E(X) = integral( 1-CDF(x) )
-            Tc[i_tgt] = integrate.simps(1.0-FX, x)
-            # T90 = QF(x=90) = CDF^-1(y=90)
-            T90[i_tgt] = interpolate.interp1d(FX, x, fill_value="extrapolate")(0.9)
+        if Nc.sum() == 0:
+            Tc[:] = np.inf
+            T90[:] = np.inf
+        else:
+            for i_tgt in range(n_tgt):
+                # Tc =   E(X): expected value of random value X
+                # FX = CDF(x): cumulative density function
+                #       QF(x): quantile function
+                x = np.array(range(n_scan)) * self.sensor.param["dT"]
+                FX = Nc[i_tgt, :]/n_run
+                # Tc = E(X) = integral( 1-CDF(x) )
+                Tc[i_tgt] = integrate.simps(1.0-FX, x)
+                # T90 = QF(x=90) = CDF^-1(y=90)
+                T90[i_tgt] = interpolate.interp1d(FX, x, fill_value="extrapolate")(0.9)
 
         result = dict()
         result["Na"] = Na/n_run

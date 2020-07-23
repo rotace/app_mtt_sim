@@ -156,28 +156,28 @@ def swap_block_matrix(mat, n_block):
     return mat
 
 
-def calc_best_assignment_by_auction( score_matrix, is_maximized=True , is_verbosed=False):
+def calc_best_assignment_by_auction( price_matrix, is_maximized=True , is_verbosed=False):
     """Calculate Best Assignment by Auction Method
 
         ref) Design and Analysis of Modern Tracking Systems
                     6.5.1 The Auction Algorithm
 
     Arguments:
-        score_matrix {numpy.ndarray} -- score( I, J )
+        price_matrix {numpy.ndarray} -- price( I, J )
     
     Keyword Arguments:
-        is_maximized {bool} -- maximize  score or not (default: {True})
+        is_maximized {bool} -- maximize  price or not (default: {True})
     
     Returns:
-        tuple of numpy.ndarray -- score( J ), assign( J )
+        tuple of numpy.ndarray -- price( J ), assign( J )
     """
 
     # i_max: current tracks(M) + new tracks(N)
     # j_max: observations(N)
-    i_max, j_max = score_matrix.shape
+    i_max, j_max = price_matrix.shape
 
     if i_max==1 and j_max==1:
-        return (np.array([score_matrix[0,0]]), np.array([0], int))
+        return (np.array([price_matrix[0,0]]), np.array([0], int))
     
     # supported only i_max >= j_max
     # if i_max < j_max, transpose matrix
@@ -196,10 +196,10 @@ def calc_best_assignment_by_auction( score_matrix, is_maximized=True , is_verbos
 
         # TODO implement fast algorithm instead of sort
         if is_maximized:
-            prices_trk_j = score_matrix[:, j_obs]-prices_trk
+            prices_trk_j = price_matrix[:, j_obs]-prices_trk
             i_trk_sort = np.argsort( prices_trk_j )[::-1]
         else:
-            prices_trk_j = score_matrix[:, j_obs]+prices_trk
+            prices_trk_j = price_matrix[:, j_obs]+prices_trk
             i_trk_sort = np.argsort( prices_trk_j )
 
         i_trk1 = i_trk_sort[0]
@@ -219,37 +219,37 @@ def calc_best_assignment_by_auction( score_matrix, is_maximized=True , is_verbos
             print("prices_trk:"+str(prices_trk))
             time.sleep(1)
 
-    scores_obs = np.zeros(j_max)
+    prices_obs = np.zeros(j_max)
     assign_obs = np.zeros(j_max, int)
     for i_trk, j_obs in enumerate(assign_trk):
         if j_obs >= 0:
-            scores_obs[j_obs] = score_matrix[i_trk, j_obs]
+            prices_obs[j_obs] = price_matrix[i_trk, j_obs]
             assign_obs[j_obs] = i_trk
 
-    return ( scores_obs, assign_obs )
+    return ( prices_obs, assign_obs )
 
 
-def calc_n_best_assignments_by_murty( score_matrix, ignore_thresh , n_best, is_maximized=True ):
+def calc_n_best_assignments_by_murty( price_matrix, ignore_thresh , n_best, is_maximized=True ):
     """Calculate N-Best Assignments by Murty Method
 
         ref) Design and Analysis of Modern Tracking Systems
                     6.5.2 N-Best Solutions to the Assignment Problem
 
     Arguments:
-        score_matrix {numpy.ndarray} -- score( I, J )
+        price_matrix {numpy.ndarray} -- price( I, J )
         ignore_thresh {float} -- ignore threshold
 
     Keyword Arguments:
-        is_maximized {bool} -- maximize  score or not (default: {True})
+        is_maximized {bool} -- maximize  price or not (default: {True})
 
     Returns:
         list of tuple -- hypotheses  of assign
     """
 
-    def set_sol_dict( scores, assign, consts ):
+    def set_sol_dict( prices, assign, consts ):
         sol_dict[tuple(assign)] = dict(
-            t_score=scores.sum(),
-            scores=tuple(scores),
+            t_price=prices.sum(),
+            prices=tuple(prices),
             assign=tuple(assign),
             consts=tuple(consts)
         )
@@ -257,7 +257,7 @@ def calc_n_best_assignments_by_murty( score_matrix, ignore_thresh , n_best, is_m
     def calc_best_assignment_with_constraints( constraints ):
 
         # init
-        tmp_matrix[...] = score_matrix
+        tmp_matrix[...] = price_matrix
 
         for index, flag in constraints:
 
@@ -269,15 +269,15 @@ def calc_n_best_assignments_by_murty( score_matrix, ignore_thresh , n_best, is_m
                 # this index is forced NOT to use as solution
                 tmp_matrix[ index ] = ignore_thresh
 
-        scores, assign = calc_best_assignment_by_auction( tmp_matrix, is_maximized )
+        prices, assign = calc_best_assignment_by_auction( tmp_matrix, is_maximized )
 
         for index, flag in constraints:
             if flag:
                 # replace into forced solution
                 assign[index[1]] = index[0]
-                scores[index[1]] = score_matrix[ index[0], index[1] ]
+                prices[index[1]] = price_matrix[ index[0], index[1] ]
 
-        return (scores, assign)
+        return (prices, assign)
 
 
     def calc_nth_best_assignment_with_constraints( solution ):
@@ -300,29 +300,29 @@ def calc_n_best_assignments_by_murty( score_matrix, ignore_thresh , n_best, is_m
             consts.append( (index, False) ) 
 
             # calc new best assignment
-            scores, assign = calc_best_assignment_with_constraints( consts )
+            prices, assign = calc_best_assignment_with_constraints( consts )
 
             if is_maximized:
-                if not math.isclose( scores.min(), ignore_thresh ):
-                    set_sol_dict( scores, assign, consts )
+                if not math.isclose( prices.min(), ignore_thresh ):
+                    set_sol_dict( prices, assign, consts )
             else:
-                if not math.isclose( scores.max(), ignore_thresh ):
-                    set_sol_dict( scores, assign, consts )
+                if not math.isclose( prices.max(), ignore_thresh ):
+                    set_sol_dict( prices, assign, consts )
 
 
     # init
     sol_dict = {} # dict remove duplicate solutions
-    i_max, j_max = score_matrix.shape
+    i_max, j_max = price_matrix.shape
     tmp_matrix = np.zeros( (i_max, j_max) )
 
     # first best solution
     consts = []
-    scores, assign = calc_best_assignment_by_auction( score_matrix, is_maximized )
-    set_sol_dict( scores, assign, consts )
+    prices, assign = calc_best_assignment_by_auction( price_matrix, is_maximized )
+    set_sol_dict( prices, assign, consts )
 
     for nth in range(n_best-1):
         # nth best solution
-        sol_sort = sorted( list(sol_dict.values()), key=lambda x:x["t_score"] )
+        sol_sort = sorted( list(sol_dict.values()), key=lambda x:x["t_price"] )
         if is_maximized:
             sol_sort = sol_sort[::-1]
         if len(sol_sort) <= nth:
@@ -331,12 +331,12 @@ def calc_n_best_assignments_by_murty( score_matrix, ignore_thresh , n_best, is_m
         solution = sol_sort[nth]
         calc_nth_best_assignment_with_constraints( solution )
 
-    sol_sort = sorted( list(sol_dict.values()), key=lambda x:x["t_score"] )
+    sol_sort = sorted( list(sol_dict.values()), key=lambda x:x["t_price"] )
     if is_maximized:
         sol_sort = sol_sort[::-1]
     sol_ret = []
     for sol in sol_sort[:n_best]:
-        sol_ret.append( (np.array( sol["scores"] ), np.array( sol["assign"] )) )
+        sol_ret.append( (np.array( sol["prices"] ), np.array( sol["assign"] )) )
         # print(sol)
 
     return sol_ret
@@ -345,7 +345,7 @@ def calc_n_best_assignments_by_murty( score_matrix, ignore_thresh , n_best, is_m
 
 def calc_multidimensional_assignment(
     multi_assign,
-    multi_score,
+    multi_price,
     is_NSO_enabled=False,
     is_verbosed=False,
     is_maximized=True
@@ -354,24 +354,24 @@ def calc_multidimensional_assignment(
     
     Arguments:
         multi_assign {numpy.ndarray} -- A( I, J )
-        multi_score {numpy.ndarray} -- S( I )
+        multi_price {numpy.ndarray} -- S( I )
 
         I : Track No.
         J : Scan No.
         A(i, j) : Obs No. assigned at Track(i) of Scan(j)
 
     Keyword Arguments:
-        is_maximized {bool} -- maximize  score or not (default: {True})
+        is_maximized {bool} -- maximize  price or not (default: {True})
 
     """
 
-    assert multi_score.shape == (multi_assign.shape[0], )
+    assert multi_price.shape == (multi_assign.shape[0], )
 
     # cost
     if is_maximized:
-        solver = MultiAssignmentSolver(multi_assign, -multi_score, is_NSO_enabled)
+        solver = MultiAssignmentSolver(multi_assign, -multi_price, is_NSO_enabled)
     else:
-        solver = MultiAssignmentSolver(multi_assign, multi_score, is_NSO_enabled)
+        solver = MultiAssignmentSolver(multi_assign, multi_price, is_NSO_enabled)
 
     # lagrange multipliers
     U = solver._get_u_init()

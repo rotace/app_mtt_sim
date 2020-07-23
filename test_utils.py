@@ -98,7 +98,7 @@ class TestUtils(unittest.TestCase):
             [3, 15]]
         )
 
-        # maximize score
+        # maximize price
         expected = (
             np.array([1, 15]),
             np.array([0, 1])
@@ -193,7 +193,7 @@ class TestUtils(unittest.TestCase):
         )
 
         # Table 7.4
-        multi_score = np.array(
+        multi_price = np.array(
             [
                 10.2,
                 4.7,
@@ -216,7 +216,7 @@ class TestUtils(unittest.TestCase):
             ]
         )
 
-        solver = utils.MultiAssignmentSolver(multi_assign, -multi_score)
+        solver = utils.MultiAssignmentSolver(multi_assign, -multi_price)
         np.testing.assert_almost_equal(solver._get_u_idx(1,2), 0)
         np.testing.assert_almost_equal(solver._get_u_idx(2,2), 1)
         
@@ -305,17 +305,17 @@ class TestUtils(unittest.TestCase):
         np.testing.assert_almost_equal(Qmax, -34.922)
 
         # unabled NSO
-        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_score )
+        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_price )
         np.testing.assert_almost_equal(T, [7, 17])
         np.testing.assert_almost_equal(V, -34.7)
-        np.testing.assert_almost_equal(multi_score[T].sum(), 34.7)
+        np.testing.assert_almost_equal(multi_price[T].sum(), 34.7)
         np.testing.assert_almost_equal(is_valid, True)
 
         # enabled NSO
-        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_score, True )
+        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_price, True )
         np.testing.assert_almost_equal(T, [7, 17])
         np.testing.assert_almost_equal(V, -34.7)
-        np.testing.assert_almost_equal(multi_score[T].sum(), 34.7)
+        np.testing.assert_almost_equal(multi_price[T].sum(), 34.7)
         np.testing.assert_almost_equal(is_valid, True)
 
 
@@ -343,7 +343,7 @@ class TestUtils(unittest.TestCase):
             ]
         )
 
-        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_score, True, False )
+        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_price, True, False )
         np.testing.assert_almost_equal(is_valid, False) # unstable case do not satisfy constraints
 
         # stable case
@@ -355,7 +355,7 @@ class TestUtils(unittest.TestCase):
                 [2,2,2,2],
             ]
         )
-        multi_score = np.array(
+        multi_price = np.array(
             [
                 10.2,
                 17,
@@ -363,7 +363,7 @@ class TestUtils(unittest.TestCase):
                 16.7,
             ]
         )
-        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_score, True, False )
+        V, T, is_valid = utils.calc_multidimensional_assignment( multi_assign, multi_price, True, False )
         np.testing.assert_almost_equal(is_valid, True)
 
 

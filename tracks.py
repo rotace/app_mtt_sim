@@ -34,13 +34,19 @@ class BaseTrackFactory():
             **self.param
         )
 
-    def calc_init_score(self, obs):
-        return self.track.calc_init_score(obs)
-
 
 
 class BaseTrack():
-    """ Track Base Class """
+    """ Base Track
+
+        ref) Design and Analysis of Modern Tracking Systems
+                    6.2 Track Score Function
+                    6.3 Gating
+                    6.4 Global Nearest Neighbor Method
+
+     * Use Kalman Filter
+     * Use Log Likelihood Ratio as Score
+    """
 
     def __init__(self, obs, model_factory, **kwargs):
         # set param
@@ -57,7 +63,7 @@ class BaseTrack():
         self.sensor = obs.sensor
         # set data
         self.obs_list = [copy.deepcopy(obs)]
-        # self.mdl_list = [None]
+        self.scr_list = [self._calc_init_score(obs)]
         self.cnt_list = [self.param["timestamp"]]
         # create model
         self.model = model_factory.create(obs)
@@ -69,6 +75,7 @@ class BaseTrack():
     def assign(self, obs):
         # set data
         self.obs_list.append(copy.deepcopy(obs))
+        self.scr_list.append(self._calc_match_score(obs))
         self.mdl_list.append(copy.deepcopy(self.model))
         self.cnt_list.append(self.cnt_list[-1]+1)
         # update model
@@ -77,6 +84,7 @@ class BaseTrack():
     def unassign(self):
         # set data
         self.obs_list.append(None)
+        self.scr_list.append(self._calc_miss_score())
         self.mdl_list.append(copy.deepcopy(self.model))
         self.cnt_list.append(self.cnt_list[-1]+1)
         # update model
@@ -91,11 +99,10 @@ class BaseTrack():
             gate = self.param["gate"]
         return gate > dist
 
-        # log_gij = self.model.gaussian_log_likelihood(obs)
-        # return obs.sensor.calc_match_dLLR(log_gij) > obs.sensor.calc_miss_dLLR()
-
-    def calc_match_score(self, obs):
-        raise NotImplementedError
+    def calc_match_price(self, obs):
+        dist, detS, M = self.model.norm_of_residual(obs)
+        gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
+        return gate - dist - np.log(detS)
 
     def judge_confirmation(self):
         raise NotImplementedError
@@ -103,14 +110,27 @@ class BaseTrack():
     def judge_deletion(self):
         raise NotImplementedError
 
-    @staticmethod
-    def calc_init_score(obs):
-        raise NotImplementedError
+    def _calc_init_score(self, obs):
+        return obs.sensor.calc_LLR0()
+
+    def _calc_match_score(self, obs):
+        log_gij = self.model.gaussian_log_likelihood(obs)
+        return self.scr_list[-1] + obs.sensor.calc_match_dLLR(log_gij)
+
+    def _calc_miss_score(self):
+        return self.scr_list[-1] + self.sensor.calc_miss_dLLR()
   
     def plot_obs_list(self):
         plt.plot(
             [obs.y[0] if obs is not None else None for obs in self.obs_list ],
             [obs.y[1] if obs is not None else None for obs in self.obs_list ],
+            marker="D", color="r", alpha=.5, linestyle="None"
+        )
+
+    def plot_scr_list(self):
+        plt.plot(
+            self.cnt_list,
+            self.scr_list,
             marker="D", color="r", alpha=.5, linestyle="None"
         )
     
@@ -121,53 +141,38 @@ class BaseTrack():
             marker="D", color="g", alpha=.5, linestyle="None"
         )
 
-class DistTrack(BaseTrack):
-    """ Distance Scored Track
+
+class SimpleManagedTrack(BaseTrack):
+    """ Simple Managed Track
 
         ref) Design and Analysis of Modern Tracking Systems
-                    6.4 Global Nearest Neighbor Method
-
-     * Use Kalman Filter
-     * Use Generalized Distance as Score
+                    6.2.4 Score-Based Track Confirmation and Deletion p.334
     """
     def __init__(self, obs, model_factory, **kwargs):
         super().__init__(obs, model_factory, **kwargs)
         
-        # set param
+        # parameter for another deletion argorithm of p.334
         if "ND" not in self.param:
             self.param["ND"] = 5    # continuous miss number for delete
-
-    def calc_match_score(self, obs):
-        dist, detS, M = self.model.norm_of_residual(obs)
-        gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
-        return gate - dist - np.log(detS)
 
     def judge_confirmation(self):
         return True
 
     def judge_deletion(self):
+        # another deletion argorithm of p.334
         ND = self.param["ND"]
         return self.obs_list[-ND:] == [None]*ND
 
-    @staticmethod
-    def calc_init_score(obs):
-        return 0
 
-
-
-class LLRTrack(BaseTrack):
-    """ LLR Scored Track
+class ScoreManagedTrack(BaseTrack):
+    """ LLR Score Managed Track
 
         ref) Design and Analysis of Modern Tracking Systems
-                    6.2 Track Score Function
-
-     * Use Kalman Filter
-     * Use Log Likelihood Ratio as Score
+                    6.2.4 Score-Based Track Confirmation and Deletion p.333
     """
     def __init__(self, obs, model_factory, **kwargs):
         super().__init__(obs, model_factory, **kwargs)
-        self.scr_list = [self.calc_init_score(obs)]
-        
+
         # set param
         if "PFD" not in self.param:
             self.param["PFD"] = 1.e-3
@@ -180,42 +185,21 @@ class LLRTrack(BaseTrack):
         self.param["T1"] = np.log( self.param["beta"] / (1-self.param["alpha"]) )
         self.param["T2"] = np.log( (1-self.param["beta"]) / self.param["alpha"] )
 
-    def assign(self, obs):
-        self.scr_list.append(self.calc_match_score(obs))
-        super().assign(obs)
-
-    def unassign(self):
-        self.scr_list.append(self._calc_miss_score())
-        super().unassign()
-
-    def calc_match_score(self, obs):
-        log_gij = self.model.gaussian_log_likelihood(obs)
-        return self.scr_list[-1] + obs.sensor.calc_match_dLLR(log_gij)
-
-    def _calc_miss_score(self):
-        return self.scr_list[-1] + self.sensor.calc_miss_dLLR()
+    # def calc_match_price(self, obs):
+    #     return self._calc_match_score(obs)
 
     def judge_confirmation(self):
+        # use score for confirmation
         return self.scr_list[-1] > self.param["T2"]
 
     def judge_deletion(self):
+        # use score for deletion
         is_del_a = self.scr_list[-1] < self.param["T1"]
         is_del_b =  self.scr_list[-1] - max(self.scr_list) < self.param["THD"]
         return is_del_a or is_del_b
-    
-    @staticmethod
-    def calc_init_score(obs):
-        return obs.sensor.calc_LLR0()
-
-    def plot_scr_list(self):
-        plt.plot(
-            self.cnt_list,
-            self.scr_list,
-            marker="D", color="r", alpha=.5, linestyle="None"
-        )
 
 
-class PDALLRTrack(LLRTrack):
+class PDATrack(ScoreManagedTrack):
     """ LLR Track for PDA
 
     ref) Design and Analysis of Modern Tracking Systems
@@ -236,7 +220,7 @@ class PDALLRTrack(LLRTrack):
         score = 0.0
         for obs, ratio in obs_dict.items():
             if obs:
-                score += ratio * (self.calc_match_score(obs) - self.scr_list[-1])
+                score += ratio * (self._calc_match_score(obs) - self.scr_list[-1])
             else:
                 score += ratio * (self._calc_miss_score() - self.scr_list[-1])
 
@@ -268,7 +252,7 @@ class PDALLRTrack(LLRTrack):
         # # update model
         self.model.update(obs_dict)
 
-class MultiSensorLLRTrack(BaseTrack):
+class MultiSensorScoreManagedTrack(BaseTrack):
     """ Multi Sensor LLR Track
 
         ref) Design and Analysis of Modern Tracking Systems
@@ -278,7 +262,7 @@ class MultiSensorLLRTrack(BaseTrack):
      * Use Log Likelihood Ratio as Score
      * Observation to Track Association Based System
     """
-    def calc_match_score(self, obs):
+    def calc_match_price(self, obs):
         raise NotImplementedError
 
 
@@ -323,8 +307,8 @@ class TrackEvaluator():
 
         dist, detS, M = trk.model.norm_of_residual(obs)
         gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
-        mch_scr = trk.calc_match_score(obs)
-        ini_scr = trk.calc_init_score(obs)
+        mch_scr = trk.calc_match_price(obs)
+        ini_scr = trk.calc_init_price(obs)
 
         # track update
         trk.assign(obs)

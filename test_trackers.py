@@ -24,7 +24,7 @@ class TestTrackers(unittest.TestCase):
                 q=0.001
             ),
             track_factory=tracks.BaseTrackFactory(
-                track=tracks.LLRTrack,
+                track=tracks.ScoreManagedTrack,
                 gate=None
             )
         )
@@ -70,7 +70,7 @@ class TestTrackers(unittest.TestCase):
                 q=0.0
             ),
             track_factory=tracks.BaseTrackFactory(
-                track=tracks.PDALLRTrack,
+                track=tracks.PDATrack,
                 gate=8
             )
         )
@@ -127,7 +127,7 @@ class TestTrackers(unittest.TestCase):
             4.10e-6,
             2.40e-6,
         ])
-        actual = tracker.hyp_score_list
+        actual = tracker.hyp_price_list
         np.testing.assert_almost_equal(actual, expected)
 
 
@@ -146,7 +146,7 @@ class TestTrackers(unittest.TestCase):
                 q=0.001
             ),
             track_factory=tracks.BaseTrackFactory(
-                track=tracks.LLRTrack,
+                track=tracks.ScoreManagedTrack,
                 gate=None
             )
         )
@@ -190,7 +190,7 @@ class TestTrackers(unittest.TestCase):
                     q=1.0
                 ),
                 track_factory=tracks.BaseTrackFactory(
-                    track=tracks.LLRTrack,
+                    track=tracks.ScoreManagedTrack,
                     gate=None
                 )
             ),

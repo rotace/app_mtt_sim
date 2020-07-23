@@ -16,7 +16,7 @@ class MockTracker():
 
 class TestTracks(unittest.TestCase):
     
-    def test_DistTrack(self):
+    def test_SimpleManagedTrack(self):
         
         ND=3
         
@@ -41,7 +41,7 @@ class TestTracks(unittest.TestCase):
             tracker.count = k
 
             if k==0:
-                trk = tracks.DistTrack(
+                trk = tracks.SimpleManagedTrack(
                     models.Obs(tgt[:2], np.eye(2), tracker.sensor ) ,
                     tracker.model_factory,
                     ND=ND
@@ -75,7 +75,7 @@ class TestTracks(unittest.TestCase):
             plt.show()
 
 
-    def test_LLRTrack(self):
+    def test_ScoreManagedTrack(self):
         """Track Score Function
 
             ref) Design and Analysis of Modern Tracking Systems
@@ -109,7 +109,7 @@ class TestTracks(unittest.TestCase):
             tracker.count = k
 
             if k==0:
-                trk = tracks.LLRTrack(
+                trk = tracks.ScoreManagedTrack(
                     models.Obs(tgt[:2], np.eye(2), tracker.sensor ) ,
                     tracker.model_factory,
                     PFD=PFD,
@@ -173,7 +173,7 @@ class TestTracks(unittest.TestCase):
                 P0=np.diag([sigma_o**2, sigma_o**2, sigma_vx**2, sigma_vy**2])
             ),
             track_factory=tracks.BaseTrackFactory(
-                track=tracks.LLRTrack,
+                track=tracks.ScoreManagedTrack,
                 gate=None
             ),
             target=models.SimpleTarget(

@@ -562,7 +562,7 @@ class Target():
     def is_exist(self):
         return self.start_time <= self.current_time < self.end_time
     
-    def calc_match_score(self, model):
+    def calc_match_price(self, model):
         gate = 13.3
         x_tgt, x_tgt_type = self.convert_x_into(mdl_type=model._x_type)
         x_common_type = list(set(x_tgt_type.val_type) & set(model._x_type.val_type))
@@ -572,7 +572,7 @@ class Target():
         return gate - dist
 
     def is_in_gate(self, model):
-        return self.calc_match_score(model) > 0
+        return self.calc_match_price(model) > 0
     
     def convert_x_into(self, mdl_type):
         """ convert target's x_type into model's x_type
