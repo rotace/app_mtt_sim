@@ -173,8 +173,7 @@ class TestTracks(unittest.TestCase):
                 P0=np.diag([sigma_o**2, sigma_o**2, sigma_vx**2, sigma_vy**2])
             ),
             track_factory=tracks.BaseTrackFactory(
-                track=tracks.ScoreManagedTrack,
-                gate=None
+                track=tracks.ScoreManagedTrack
             ),
             target=models.SimpleTarget(
                 x0=[0.0, 0.0, vx0, vy0],

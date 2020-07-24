@@ -90,19 +90,29 @@ class BaseTrack():
         # update model
         self.model.update(None)
 
-    def is_in_gate(self, obs):
+    def get_gate(self, obs):
         dist, detS, M = self.model.norm_of_residual(obs)
         gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
 
-        # TODO: remove gate calculation
         if self.param["gate"]:
             gate = self.param["gate"]
+        return (gate, dist)
+
+    def is_in_gate(self, obs):
+        gate, dist = self.get_gate(obs)
         return gate > dist
 
     def calc_match_price(self, obs):
         dist, detS, M = self.model.norm_of_residual(obs)
         gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
-        return gate - dist - np.log(detS)
+        if False:
+            # p.339 version (using term for penalizing tracks with greater prediction uncertainty)
+            # however, in some case, penalty term is too strong for associate new track with next obs
+            # because new track has greater prediction uncertainty P0, esspecially velocity uncertainty.
+            return gate - dist - np.log(detS)
+        else:
+            # p.340 version (simple)
+            return gate - dist
 
     def judge_confirmation(self):
         raise NotImplementedError
@@ -173,7 +183,7 @@ class ScoreManagedTrack(BaseTrack):
     def __init__(self, obs, model_factory, **kwargs):
         super().__init__(obs, model_factory, **kwargs)
 
-        # set param
+        # parameter for confirmation and deletion argorithm of p.333
         if "PFD" not in self.param:
             self.param["PFD"] = 1.e-3
         if "alpha" not in self.param:
@@ -184,9 +194,6 @@ class ScoreManagedTrack(BaseTrack):
         self.param["THD"] = np.log( self.param["PFD"] )
         self.param["T1"] = np.log( self.param["beta"] / (1-self.param["alpha"]) )
         self.param["T2"] = np.log( (1-self.param["beta"]) / self.param["alpha"] )
-
-    # def calc_match_price(self, obs):
-    #     return self._calc_match_score(obs)
 
     def judge_confirmation(self):
         # use score for confirmation
@@ -230,7 +237,8 @@ class PDATrack(ScoreManagedTrack):
         for obs, ratio in obs_dict.items():
             if obs:
                 count += 1
-                vg = self.model.volume_of_ellipsoidal_gate( obs, self.param["gate"] )
+                gate, _ = self.get_gate(obs)
+                vg = self.model.volume_of_ellipsoidal_gate( obs, gate )
                 delta -= vg * np.exp( self.model.gaussian_log_likelihood(obs) )
             else:
                 pass
@@ -307,8 +315,8 @@ class TrackEvaluator():
 
         dist, detS, M = trk.model.norm_of_residual(obs)
         gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
-        mch_scr = trk.calc_match_price(obs)
-        ini_scr = trk.calc_init_price(obs)
+        mch_scr = trk._calc_match_score(obs)
+        ini_scr = trk._calc_init_score(obs)
 
         # track update
         trk.assign(obs)
