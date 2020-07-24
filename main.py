@@ -27,7 +27,7 @@ def main():
     # print(result["Tc"][0])
 
     gnn = IRSTexample.generate_irst_example_p372(PD=0.7, PFA=6e-5)
-    gnn.plot_position(n_scan=50, is_all_obs_displayed=True)
+    gnn.animate_position(n_scan=50, is_all_obs_displayed=True)
     # result = gnn.estimate_track_statistics(n_scan=65, n_run=50)
     # plt.plot(result["Na"][0,:], label="Na")
     # plt.plot(result["Nc"][0,:], label="Nc")

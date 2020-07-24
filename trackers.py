@@ -2,6 +2,7 @@ import copy
 import numpy as np
 from scipy import integrate, interpolate, stats
 import matplotlib.pyplot as plt
+import matplotlib.animation as ani
 
 import utils
 import models
@@ -456,6 +457,51 @@ class TrackerEvaluator():
         plt.legend()
         plt.axis("equal")
         plt.grid()
+        plt.show()
+
+    def animate_position(self, n_scan=10, is_all_obs_displayed=False):
+        # init
+        tracker, tgt_list = self._initialize_simulation()
+        arts = []
+        fig = plt.figure()
+
+        # simulate
+        for i_scan in range(n_scan):
+
+            tracker, tgt_list, trk_list, obs_list, _ = self._update(tracker, tgt_list)
+
+            tgt_art = plt.plot(
+                [tgt.x[0] if tgt is not None else None for tgt in tgt_list ],
+                [tgt.x[1] if tgt is not None else None for tgt in tgt_list ],
+                marker="D", color="b", alpha=.5, linestyle="None", label="tgt"
+            )
+            trk_art = plt.plot(
+                [trk.model.x[0] if trk is not None else None for trk in trk_list ],
+                [trk.model.x[1] if trk is not None else None for trk in trk_list ],
+                marker="D", color="r", alpha=.5, linestyle="None", label="trk"
+            )
+            if is_all_obs_displayed:
+                obs_art = plt.plot(
+                    [obs.y[0] for obs in obs_list ],
+                    [obs.y[1] for obs in obs_list ],
+                    marker="D", color="g", alpha=.5, linestyle="None", label="obs"
+                )
+            else:
+                obs_art = plt.plot(
+                    [trk.obs_list[-1].y[0] if trk is not None and trk.obs_list[-1] is not None else None for trk in trk_list ],
+                    [trk.obs_list[-1].y[1] if trk is not None and trk.obs_list[-1] is not None else None for trk in trk_list ],
+                    marker="D", color="g", alpha=.5, linestyle="None", label="obs"
+                )
+
+            title = plt.text( -40, -40, "count:" + str(i_scan), size = 10 )
+
+            arts.append( tgt_art + trk_art + obs_art + [title] )
+            if i_scan == 1:
+                plt.legend()
+                plt.axis("equal")
+                plt.grid()
+
+        _ = ani.ArtistAnimation(fig, arts, interval=1000)
         plt.show()
 
     def estimate_track_statistics(self, n_scan=10, n_run=10):
