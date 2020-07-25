@@ -10,7 +10,7 @@ import tracks
 import sensors
 import trackers
 
-def generate_irst_example_p878(PD=0.7, PFA=1e-6):
+def generate_irst_example_p878(PD=0.7, PFA=1e-6, tracker_type="GNN"):
     """ IRST example of p.878
 
     unit is pixcel (=70urad)
@@ -29,8 +29,17 @@ def generate_irst_example_p878(PD=0.7, PFA=1e-6):
     vx0 = np.random.normal(0.0, sigma_vx)
     vy0 = np.random.normal(0.0, sigma_vy)
 
-    gnn = trackers.TrackerEvaluator(
-        tracker=trackers.GNN(
+    if tracker_type == "JPDA":
+        tracker = trackers.JPDA
+        model = models.PDAKalmanModel
+        track = tracks.PDATrack
+    else:
+        tracker = trackers.GNN
+        model = models.KalmanModel
+        track = tracks.ScoreManagedTrack
+
+    ret = trackers.TrackerEvaluator(
+        tracker=tracker(
             sensor=sensors.BaseSensor(
                 dT=scan_time,
                 PD=PD,
@@ -44,14 +53,14 @@ def generate_irst_example_p878(PD=0.7, PFA=1e-6):
                 y_stps=[1,1]
             ),
             model_factory=models.SingerModelFactory(
-                model=models.KalmanModel,
+                model=model,
                 tm=time_m,
                 sm=[sigma_mx, sigma_my],
                 SD=2,
                 P0=np.diag([sigma_o**2, sigma_o**2, sigma_vx**2, sigma_vy**2])
             ),
             track_factory=tracks.BaseTrackFactory(
-                track=tracks.ScoreManagedTrack
+                track=track
             )
         ),
         tgt_list=[
@@ -73,7 +82,7 @@ def generate_irst_example_p878(PD=0.7, PFA=1e-6):
     # FMC ( Full Monte Carlo Simulation ) (p878)
     # 13.3.5 IRST Example
 
-    return gnn
+    return ret
 
 
 class TrackerEvaluatorForP372(trackers.TrackerEvaluator):
@@ -106,7 +115,7 @@ class SinusoidTarget(models.Target):
             +0.0
         ])
 
-def generate_irst_example_p372(PD=0.7, PFA=1e-6, is_maneuver_enabled=True):
+def generate_irst_example_p372(PD=0.7, PFA=1e-6, is_maneuver_enabled=True, tracker_type="GNN"):
     """ IRST example of p.372
 
     unit is pixcel (=70urad)
@@ -128,8 +137,17 @@ def generate_irst_example_p372(PD=0.7, PFA=1e-6, is_maneuver_enabled=True):
         sigma_mx  = 5.0
         sigma_my  = 2.0
 
-    gnn = TrackerEvaluatorForP372(
-        tracker=trackers.GNN(
+    if tracker_type == "JPDA":
+        tracker = trackers.JPDA
+        model = models.PDAKalmanModel
+        track = tracks.PDATrack
+    else:
+        tracker = trackers.GNN
+        model = models.KalmanModel
+        track = tracks.ScoreManagedTrack
+
+    ret = TrackerEvaluatorForP372(
+        tracker=tracker(
             sensor=sensors.BaseSensor(
                 dT=scan_time,
                 PD=PD,
@@ -143,14 +161,14 @@ def generate_irst_example_p372(PD=0.7, PFA=1e-6, is_maneuver_enabled=True):
                 y_stps=[1,1]
             ),
             model_factory=models.SingerModelFactory(
-                model=models.KalmanModel,
+                model=model,
                 tm=time_m,
                 sm=[sigma_mx, sigma_my],
                 SD=2,
                 P0=np.diag([sigma_o**2, sigma_o**2, (target.A*target.omega)**2, (target.A*target.omega)**2])
             ),
             track_factory=tracks.BaseTrackFactory(
-                track=tracks.ScoreManagedTrack
+                track=track
             )
         ),
         tgt_list=[target],
@@ -159,4 +177,4 @@ def generate_irst_example_p372(PD=0.7, PFA=1e-6, is_maneuver_enabled=True):
         PFA=PFA
     )
 
-    return gnn
+    return ret

@@ -206,7 +206,12 @@ class JPDA(BaseTracker):
             self.trk_list.append( self.track_factory.create( obs ) )
 
         #---- track confirmation and deletion
-        # TODO: implement track confirmation and deletion
+
+        # delete trackfile
+        self.trk_list = [ trk for trk in self.trk_list if not trk.judge_deletion() ]
+
+        # confirmation and representation
+        return [ trk for trk in self.trk_list if trk.judge_confirmation() ]
 
 
 

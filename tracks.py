@@ -206,7 +206,7 @@ class ScoreManagedTrack(BaseTrack):
         return is_del_a or is_del_b
 
 
-class PDATrack(ScoreManagedTrack):
+class PDATrack(BaseTrack):
     """ LLR Track for PDA
 
     ref) Design and Analysis of Modern Tracking Systems
@@ -259,6 +259,14 @@ class PDATrack(ScoreManagedTrack):
         
         # # update model
         self.model.update(obs_dict)
+
+    def judge_confirmation(self):
+        # use pt for confirmation
+        return self.pt_list[-1] > 0.95
+
+    def judge_deletion(self):
+        # use pt for deletion
+        return self.pt_list[-1] < 0.4
 
 class MultiSensorScoreManagedTrack(BaseTrack):
     """ Multi Sensor LLR Track

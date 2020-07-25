@@ -285,6 +285,7 @@ class PDAKalmanModel(KalmanModel):
                     6.6.2 Extension to JPDA
     """
     def update(self, obs_dict):
+        ratio_0 = 0.0
         if obs_dict:
 
             dyy = np.zeros( self.y_dim ).reshape(1,-1)
@@ -303,7 +304,7 @@ class PDAKalmanModel(KalmanModel):
             self._inovate_step(R)
             P0 = ratio_0 * self.P + (1-ratio_0) * (self.P - self.K @ self.H * self.P)
             self.P = P0 + self.K @ (dYY - dyy.T @ dyy ) @ self.K.T
-            self.x = self.x + self.K @ dyy.T
+            self.x = self.x + self.K @ dyy.flatten()
             self._predict_step()
 
         else:
