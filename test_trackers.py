@@ -21,6 +21,7 @@ class TestTrackers(unittest.TestCase):
             ),
             model_factory=models.SimpleModelFactory(
                 model=models.KalmanModel,
+                dT=1.0,
                 q=0.001
             ),
             track_factory=tracks.BaseTrackFactory(
@@ -66,6 +67,7 @@ class TestTrackers(unittest.TestCase):
             ),
             model_factory=models.SimpleModelFactory(
                 model=models.PDAKalmanModel,
+                dT=1.0,
                 q=0.0
             ),
             track_factory=tracks.BaseTrackFactory(
@@ -142,6 +144,7 @@ class TestTrackers(unittest.TestCase):
             ),
             model_factory=models.SimpleModelFactory(
                 model=models.KalmanModel,
+                dT=1.0,
                 q=0.001
             ),
             track_factory=tracks.BaseTrackFactory(
@@ -174,6 +177,7 @@ class TestTrackers(unittest.TestCase):
         eval = trackers.TrackerEvaluator(
             trackers.GNN(
                 sensor=sensors.BaseSensor(
+                    R=np.diag([0.001,0.001]),
                     dT=1.0,
                     PD=0.7,
                     VC=1.0,
@@ -185,6 +189,7 @@ class TestTrackers(unittest.TestCase):
                 ),
                 model_factory=models.SimpleModelFactory(
                     model=models.KalmanModel,
+                    dT=1.0,
                     q=1.0
                 ),
                 track_factory=tracks.BaseTrackFactory(
@@ -196,8 +201,7 @@ class TestTrackers(unittest.TestCase):
                 models.SimpleTarget(SD=2, x0=[ 0.,10.,+1.,-1.], start_time=0.0),
                 models.SimpleTarget(SD=2, x0=[10.,10.,-1.,-1.], start_time=0.0),
                 models.SimpleTarget(SD=2, x0=[10., 0.,+0.,+1.], start_time=1.0)
-            ],
-            R=np.diag([0.001,0.001])
+            ])
         )
 
         # eval.plot_position()

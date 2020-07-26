@@ -41,7 +41,7 @@ def generate_irst_example_p878(PD=0.7, PFA=1e-6, tracker_type="GNN"):
     ret = trackers.TrackerEvaluator(
         tracker=tracker(
             sensor=sensors.BaseSensor(
-                dT=scan_time,
+                R=np.diag([sigma_o**2, sigma_o**2]),
                 PD=PD,
                 VC=1.0,
                 PFA=PFA,
@@ -54,6 +54,7 @@ def generate_irst_example_p878(PD=0.7, PFA=1e-6, tracker_type="GNN"):
             ),
             model_factory=models.SingerModelFactory(
                 model=model,
+                dT=scan_time,
                 tm=time_m,
                 sm=[sigma_mx, sigma_my],
                 SD=2,
@@ -149,7 +150,7 @@ def generate_irst_example_p372(PD=0.7, PFA=1e-6, is_maneuver_enabled=True, track
     ret = TrackerEvaluatorForP372(
         tracker=tracker(
             sensor=sensors.BaseSensor(
-                dT=scan_time,
+                R=np.diag([sigma_o**2, sigma_o**2]),
                 PD=PD,
                 VC=1.0,
                 PFA=PFA,
@@ -162,6 +163,7 @@ def generate_irst_example_p372(PD=0.7, PFA=1e-6, is_maneuver_enabled=True, track
             ),
             model_factory=models.SingerModelFactory(
                 model=model,
+                dT=scan_time,
                 tm=time_m,
                 sm=[sigma_mx, sigma_my],
                 SD=2,

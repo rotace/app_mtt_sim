@@ -22,7 +22,6 @@ class TestTracks(unittest.TestCase):
         
         tracker = MockTracker(
             sensor=sensors.BaseSensor(
-                dT=1.0,
                 PD=0.7,
                 VC=1.0,
                 PFA=1e-6,
@@ -30,6 +29,7 @@ class TestTracks(unittest.TestCase):
             ),
             model_factory=models.SimpleModelFactory(
                 model=models.KalmanModel,
+                dT=1.0,
                 q=0.001
             )
         )
@@ -88,7 +88,6 @@ class TestTracks(unittest.TestCase):
 
         tracker = MockTracker(
             sensor=sensors.BaseSensor(
-                dT=1.0,
                 PD=PD,
                 VC=1.0,
                 PFA=1e-6,
@@ -96,6 +95,7 @@ class TestTracks(unittest.TestCase):
             ),
             model_factory=models.SimpleModelFactory(
                 model=models.KalmanModel,
+                dT=1.0,
                 q=0.001
             )
         )
@@ -159,7 +159,6 @@ class TestTracks(unittest.TestCase):
 
         eval = tracks.TrackEvaluator(
             sensor=sensors.BaseSensor(
-                dT=scan_time,
                 PD=0.7,
                 VC=1.0,
                 PFA=1e-6,
@@ -167,6 +166,7 @@ class TestTracks(unittest.TestCase):
             ),
             model_factory=models.SingerModelFactory(
                 model=models.KalmanModel,
+                dT=1.0,
                 tm=time_m,
                 sm=[sigma_mx, sigma_my],
                 SD=2,

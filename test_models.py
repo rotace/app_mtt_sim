@@ -102,6 +102,7 @@ class TestModels(unittest.TestCase):
         # simple check
         mf = models.SingerModelFactory(
             model = models.KalmanModel,
+            dT = 1.0,
             tm = 1.0,
             sm = 1.0,
             SD = 1
@@ -159,6 +160,7 @@ class TestModels(unittest.TestCase):
         dT = 2
         mf = models.SingerModelFactory(
             model = models.KalmanModel,
+            dT = dT,
             tm = tm,
             sm = sm,
             SD = 1
@@ -168,7 +170,7 @@ class TestModels(unittest.TestCase):
             models.Obs(
                 y=np.array([1.0]),
                 R=np.zeros((1,1))+0.1,
-                sensor=sensors.BaseSensor(dT=dT)
+                sensor=sensors.BaseSensor()
             )
         )
         np.testing.assert_equal(md.x.shape, (3,))
@@ -236,9 +238,10 @@ class TestModels(unittest.TestCase):
     def test_ModelEvaluator(self):
 
         eval = models.ModelEvaluator(
-            sensor=sensors.BaseSensor(dT=1),
+            sensor=sensors.BaseSensor(),
             model_factory=models.SingerModelFactory(
                 models.KalmanModel,
+                dT=1.0,
                 tm=10.0,
                 sm=15.0,
                 SD=1,
@@ -256,9 +259,10 @@ class TestModels(unittest.TestCase):
         np.testing.assert_almost_equal(RMSE.shape, (3,))
 
         eval = models.ModelEvaluator(
-            sensor=sensors.BaseSensor(dT=1),
+            sensor=sensors.BaseSensor(),
             model_factory=models.SingerModelFactory(
                 models.KalmanModel,
+                dT=1.0,
                 tm=10.0,
                 sm=15.0,
                 SD=1,

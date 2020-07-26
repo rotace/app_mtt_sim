@@ -315,11 +315,12 @@ class PDAKalmanModel(KalmanModel):
 class ModelFactory():
     """ Base ModelFactory """
 
-    def __init__(self, model, SD=2, RD=2, P0=np.array([0.]), is_polar=False, is_vel_measure_enabled=False):
+    def __init__(self, model, dT, SD=2, RD=2, P0=np.array([0.]), is_polar=False, is_vel_measure_enabled=False):
         assert 1 <= SD <= 3
         assert 2 <= RD <= 3
 
         self.model = model
+        self.dT=dT
         self.P0=P0
         self.SD=SD
         self.RD=RD
@@ -357,7 +358,7 @@ class SimpleModelFactory(ModelFactory):
       * Cart 2D Model (cart-x, cart-y), x=(px, py, vx, vy), y=(px, py)
       * Polar 2D Model (range, theta), x=(pr, pt, vr, vt), y=(pr, pt)
     """
-    def __init__(self, model, q, SD=2, RD=2, P0=np.array([0.]), is_polar=False, is_vel_measure_enabled=False):
+    def __init__(self, model, dT, q, SD=2, RD=2, P0=np.array([0.]), is_polar=False, is_vel_measure_enabled=False):
         """
         Arguments:
         tm {float} -- target maneuver time constant
@@ -377,7 +378,7 @@ class SimpleModelFactory(ModelFactory):
             is_polar = False
         )
         """
-        super().__init__(model=model, SD=SD, RD=RD, P0=P0, is_polar=is_polar, is_vel_measure_enabled=is_vel_measure_enabled)
+        super().__init__(model=model, dT=dT, SD=SD, RD=RD, P0=P0, is_polar=is_polar, is_vel_measure_enabled=is_vel_measure_enabled)
 
         if np.isscalar(q):
             q = [q]*SD
@@ -390,8 +391,7 @@ class SimpleModelFactory(ModelFactory):
         assert obs.y.shape == (self.SD,), "obs.y.shape invalid, actual:" + str(obs.y.shape)
         assert obs.R.shape == (self.SD,self.SD), "obs.R.shape invalid, actual:" + str(obs.R.shape)
         
-        dT = obs.sensor.param["dT"]
-        
+        dT = self.dT
         x = np.zeros(self.XD)
         x[0:self.YD] = obs.y
 
@@ -446,7 +446,7 @@ class SingerModelFactory(ModelFactory):
     ref) Design and Analysis of Modern Tracking Systems
         4.2.1 Singer Acceleration Model
     """
-    def __init__(self, model, tm, sm, SD=2, P0=np.array([0.]), is_polar=False, is_vel_measure_enabled=False):
+    def __init__(self, model, dT, tm, sm, SD=2, P0=np.array([0.]), is_polar=False, is_vel_measure_enabled=False):
         """
         Arguments:
         tm {float} -- target maneuver time constant
@@ -465,7 +465,7 @@ class SingerModelFactory(ModelFactory):
             is_vel_measure_enabled = False
         )
         """
-        super().__init__(model=model, SD=SD, RD=3, P0=P0, is_polar=is_polar, is_vel_measure_enabled=is_vel_measure_enabled)
+        super().__init__(model=model, dT=dT, SD=SD, RD=3, P0=P0, is_polar=is_polar, is_vel_measure_enabled=is_vel_measure_enabled)
 
         if np.isscalar(tm):
             tm = [tm]*SD
@@ -484,8 +484,7 @@ class SingerModelFactory(ModelFactory):
         assert obs.y.shape == (self.YD,), "obs.y.shape invalid, actual:" + str(obs.y.shape)
         assert obs.R.shape == (self.YD,self.YD), "obs.R.shape invalid, actual:" + str(obs.R.shape)
 
-        dT = obs.sensor.param["dT"]
-
+        dT = self.dT
         x = np.zeros(self.XD)
         x[0:self.YD] = obs.y
 
@@ -723,6 +722,9 @@ class ModelEvaluator():
         self.R = R
         self.sensor = sensor
 
+    def _dT(self):
+        return self.model_factory.dT
+
     def _initialize_simulation(self):
         self.tgt_list = []
         self.obs_list = []
@@ -752,7 +754,7 @@ class ModelEvaluator():
         tgt, obs, mdl = self._initialize_simulation()
 
         # init for prediction
-        tgt.update(self.sensor.param["dT"])
+        tgt.update(self._dT())
 
         # simulate
         count = 1000
@@ -762,7 +764,7 @@ class ModelEvaluator():
             self.mdl_list.append(copy.deepcopy(mdl))
 
             mdl.update(obs)
-            tgt.update(self.sensor.param["dT"])
+            tgt.update(self._dT())
             obs = Obs(np.random.multivariate_normal(tgt.x[:len(self.R)], self.R), self.R, self.sensor)
 
             count -= 1
@@ -779,7 +781,7 @@ class ModelEvaluator():
             self.obs_list.append(copy.deepcopy(obs))
             self.mdl_list.append(copy.deepcopy(mdl))
 
-            tgt.update(self.sensor.param["dT"])
+            tgt.update(self._dT())
             obs = Obs(np.random.multivariate_normal(tgt.x[:len(self.R)], self.R), self.R, self.sensor)
             mdl.update(obs)
 

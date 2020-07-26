@@ -1,11 +1,12 @@
 import copy
 import numpy as np
-from scipy import integrate, interpolate, stats
+from scipy import integrate, interpolate
 import matplotlib.pyplot as plt
 import matplotlib.animation as ani
 
 import utils
 import models
+import sensors
 
 IGNORE_THRESH = -1000000
 
@@ -14,7 +15,16 @@ class BaseTracker():
     """ Tracker Base Class """
 
     def __init__(self, sensor, model_factory, track_factory):
-        self.sensor = sensor
+
+        if isinstance(sensor, list):
+            self.sen_list = sensor
+            self.sensor = None
+        elif isinstance(sensor, sensors.BaseSensor):
+            self.sen_list = [sensor]
+            self.sensor = sensor
+        else:
+            assert False, "sensor invalid, actual:" + str(type(sensor))
+
         self.track_factory = track_factory
         self.timestamp = 0
 
@@ -25,7 +35,7 @@ class BaseTracker():
 
     def update(self):
         self.timestamp += 1
-        self.sensor.update()
+        [ sen.update() for sen in self.sen_list ]
 
     def _calc_price_matrix(self, hyp, obs_list):
         # init
@@ -70,10 +80,16 @@ class GNN(BaseTracker):
     def register_scan(self, obs_list):
         self.update()
 
-        # single sensor track
+        # preprocess for obs
         for obs in obs_list:
-            if not obs.sensor:
+            if obs.sensor:
+                # normal use case (support single sensor and multi sensors)
+                pass
+            elif not obs.sensor and self.sensor:
+                # easy use case (support single sensor only)
                 obs.sensor = self.sensor
+            else:
+                assert False, "both obs.sensor and tracker.sensor invalid"
 
         #---- calc price
 
@@ -133,10 +149,16 @@ class JPDA(BaseTracker):
     def register_scan(self, obs_list):
         self.update()
 
-        # single sensor track
+        # preprocess for obs
         for obs in obs_list:
-            if not obs.sensor:
+            if obs.sensor:
+                # normal use case (support single sensor and multi sensors)
+                pass
+            elif not obs.sensor and self.sensor:
+                # easy use case (support single sensor only)
                 obs.sensor = self.sensor
+            else:
+                assert False, "both obs.sensor and tracker.sensor invalid"
 
         #---- calc price
 
@@ -240,10 +262,16 @@ class MHT(BaseTracker):
     def register_scan(self, obs_list):
         self.update()
 
-        # single sensor track
+        # preprocess for obs
         for obs in obs_list:
-            if not obs.sensor:
+            if obs.sensor:
+                # normal use case (support single sensor and multi sensors)
+                pass
+            elif not obs.sensor and self.sensor:
+                # easy use case (support single sensor only)
                 obs.sensor = self.sensor
+            else:
+                assert False, "both obs.sensor and tracker.sensor invalid"
 
         if not self.hyp_list:
             self.hyp_list.append(self.Hypothesis(trk_list=[]))
@@ -314,12 +342,15 @@ class TrackerEvaluator():
         13.6 MTT System Evaluation Metrics
     """
 
-    def __init__(self, tracker, tgt_list, R, PD=None, PFA=None):
+    def __init__(self, tracker, tgt_list, R=None, PD=None, PFA=None):
         self.tracker = tracker
         self.tgt_list = tgt_list
         self.sensor = tracker.sensor
 
-        self.R = R
+        if R is None:
+            self.R = self.sensor.param["R"]
+        else:
+            self.R = R
 
         if PD is None:
             self.PD = self.sensor.param["PD"]
@@ -330,6 +361,9 @@ class TrackerEvaluator():
             self.PFA= self.sensor.param["PFA"]
         else:
             self.PFA = PFA
+
+    def _dT(self):
+        return self.tracker.track_factory.model_factory.dT
 
     def _initialize_simulation(self):
         return (copy.deepcopy(self.tracker), copy.deepcopy(self.tgt_list))
@@ -364,48 +398,20 @@ class TrackerEvaluator():
         pass
     
     def _update(self, tracker, tgt_list, i_scan=None):
-        assert "y_mins" in self.sensor.param
-        assert "y_maxs" in self.sensor.param
-        assert "y_stps" in self.sensor.param
-
         # sensor characteristics
         self._update_sim_param(i_scan)
-        y_mins = self.sensor.param["y_mins"]
-        y_maxs = self.sensor.param["y_maxs"]
-        y_stps = self.sensor.param["y_stps"]
-        n_mesh = int(np.prod([ abs((y_max-y_min)/y_stp) for y_min, y_max, y_stp in zip(y_mins, y_maxs, y_stps) ]))
 
         # count targets
         n_tgt = len(tgt_list)
-        
-        # init observation
-        obs_list = []
 
-        # add target observation
-        obs_list.extend([
-            models.Obs(
-                np.random.multivariate_normal(tgt.x[:len(self.R)], self.R),
-                self.R,
-                tracker.sensor
-            )
-            for tgt in tgt_list if tgt.is_exist() and np.random.choice([True, False], p=[self.PD, 1-self.PD])
-        ])
+        # create obs_list
+        obs_list = self.sensor.create_obs_list(tgt_list, R=self.R, PD=self.PD, PFA=self.PFA)
         
-        # add false alarm observation
-        obs_list.extend([
-            models.Obs(
-                np.array([ np.random.uniform(y_min, y_max) for y_min, y_max in zip(y_mins, y_maxs) ]),
-                self.R,
-                tracker.sensor
-            )
-            for k in range(stats.binom.rvs(n=n_mesh, p=self.PFA))
-        ])
-
         # register scan data
         trk_list = tracker.register_scan(obs_list)
 
         # tgt_list update
-        [ tgt.update(self.sensor.param["dT"]) for tgt in tgt_list ]
+        [ tgt.update(self._dT()) for tgt in tgt_list ]
 
         # calc MOF (Measure of Fit) and assignment
         S = self._calc_price_matrix(tgt_list, trk_list)
@@ -568,7 +574,7 @@ class TrackerEvaluator():
                 # Tc =   E(X): expected value of random value X
                 # FX = CDF(x): cumulative density function
                 #       QF(x): quantile function
-                x = np.array(range(n_scan)) * self.sensor.param["dT"]
+                x = np.array(range(n_scan)) * self._dT()
                 FX = Nc[i_tgt, :]/n_run
                 # Tc = E(X) = integral( 1-CDF(x) )
                 Tc[i_tgt] = integrate.simps(1.0-FX, x)

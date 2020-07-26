@@ -303,6 +303,9 @@ class TrackEvaluator():
         self.target = target
         self.R = R
         self.sensor = sensor
+    
+    def _dT(self):
+        return self.track_factory.model_factory.dT
 
     def _initialize_simulation(self):
         self.tgt_list = []
@@ -316,7 +319,7 @@ class TrackEvaluator():
 
     def _update(self, tgt, obs, trk):
         # update target
-        tgt.update(self.sensor.param["dT"])
+        tgt.update(self._dT())
 
         # update observation
         obs = models.Obs(np.random.multivariate_normal(tgt.x[:len(self.R)], self.R), self.R, self.sensor)
