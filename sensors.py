@@ -21,8 +21,11 @@ class BaseSensor():
         self.param = kwargs
         self.count = 0
 
-    def update(self, *args, **kwargs):
+    def update(self, dT, *args, **kwargs):
         self.count += 1
+    
+    def is_trk_in_range(self, trk):
+        return True
 
     def calc_LLR0(self):
         assert "PNT" in self.param
@@ -90,8 +93,7 @@ class BaseSensor():
         obs_list.extend([
             models.Obs(
                 np.random.multivariate_normal(tgt.x[:len(R)], R), # set as real parameter R
-                self.param["R"], # set as model parameter R
-                self
+                self.param["R"] # set as model parameter R
             )
             for tgt in tgt_list if tgt.is_exist() and np.random.choice([True, False], p=[PD, 1-PD])
         ])
@@ -100,8 +102,7 @@ class BaseSensor():
         obs_list.extend([
             models.Obs(
                 np.array([ np.random.uniform(y_min, y_max) for y_min, y_max in zip(y_mins, y_maxs) ]),
-                self.param["R"], # set as model parameter R
-                self
+                self.param["R"] # set as model parameter R
             )
             for k in range(stats.binom.rvs(n=n_mesh, p=PFA))
         ])

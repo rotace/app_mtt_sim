@@ -7,8 +7,10 @@
 
 import os
 import sys
+import cmath
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as pat
 import matplotlib.animation as ani
 
 import utils
@@ -49,7 +51,7 @@ def sample_IRSTexample878():
     This program calculate IRST(literature p.878) simulation with GNN.
     In addition, plot, animate, and analysis them.
     """
-    gnn = IRSTexample.generate_irst_example_p878(PD=0.7, PFA=6e-5)
+    gnn = IRSTexample.generate_irst_example_p878(PD=0.7, PFA=6e-7)
     gnn.plot_position(n_scan=50, is_all_obs_displayed=True)
     # result = gnn.estimate_track_statistics(n_scan=10, n_run=10)
     # print(result["Tc"][0])
@@ -68,23 +70,51 @@ def sample_MultiSensorGNN():
     sigma_vx  = 18.0
     sigma_vy  =  4.0
 
+    class Radar2DSensor(sensors.BaseSensor):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.px = kwargs["INIT_POSITION"][0]
+            self.py = kwargs["INIT_POSITION"][1]
+            self.vx = kwargs["CRUISE_SPEED"][0]
+            self.vy = kwargs["CRUISE_SPEED"][1]
+            self.range = kwargs["DETECT_RANGE"]
+            self.width = kwargs["DETECT_WIDTH"]
+        def update(self, dT, *args, **kwargs):
+            super().update(dT, *args, **kwargs)
+            self.px += self.vx*dT
+            self.py += self.vy*dT
+        def is_trk_in_range(self, trk):
+            dist, azim = cmath.polar( (trk.model.x[0]-self.px) + 1j*(trk.model.x[1]-self.py) )
+            return dist < self.range and abs(azim) < self.width/2
+        def is_tgt_in_range(self, tgt):
+            dist, azim = cmath.polar( (tgt[0]-self.px) + 1j*(tgt[1]-self.py) )
+            return dist < self.range and abs(azim) < self.width/2
+
     sen_list = [
-        sensors.BaseSensor(
+        Radar2DSensor(
             PD=PD,
             VC=1.0,
             PFA=PFA,
-            BNT=0.03
+            BNT=0.03,
+            INIT_POSITION=(0.0, 10.0),
+            CRUISE_SPEED=(1.0, 0.0),
+            DETECT_RANGE=40,
+            DETECT_WIDTH=120/180*cmath.pi
         ),
-        sensors.BaseSensor(
+        Radar2DSensor(
             PD=PD,
             VC=1.0,
             PFA=PFA,
-            BNT=0.03
+            BNT=0.03,
+            INIT_POSITION=(50.0, 10.0),
+            CRUISE_SPEED=(1.0, 0.0),
+            DETECT_RANGE=40,
+            DETECT_WIDTH=120/180*cmath.pi
         )
     ]
 
     tracker = trackers.GNN(
-        sensor=sen_list,
+        sen_list=sen_list,
         model_factory=models.SingerModelFactory(
             model=models.KalmanModel,
             dT=scan_time,
@@ -99,27 +129,35 @@ def sample_MultiSensorGNN():
     )
 
     tgt_list = [
-        np.array([0.,0.,1.,1.]),
-        np.array([100.,100.,-1.,-1.])
+        np.array([100., 0.,-1.,+0.3]),
+        np.array([100.,10.,-1.,-0.1]),
+        np.array([100.,20.,-1.,-0.2])
     ]
 
     art_list =[]
     fig = plt.figure()
+    plt.axis("equal")
+    plt.grid()
 
-    for i_scan in range(50):
+    for i_scan in range(100):
 
-        if i_scan % 5:
+        if not i_scan % 5:
             # scan by sensor0 (once in 5 times)
-            R = np.eye(2) * 10
+            sensor = sen_list[0]
+            R = np.eye(2) * 0.01
             trk_list = tracker.register_scan(
-                [models.Obs(np.random.multivariate_normal(tgt[:2], R), R, sensor=sen_list[0]) for tgt in tgt_list]
+                [models.Obs(np.random.multivariate_normal(tgt[:2], R), R) for tgt in tgt_list if sensor.is_tgt_in_range(tgt)], sensor=sensor
             )
         else:
             # scan by sensor1 (everytime except sensor0 turn)
-            R = np.eye(2) * 1
+            sensor = sen_list[1]
+            R = np.eye(2) * 0.01
             trk_list = tracker.register_scan(
-                [models.Obs(np.random.multivariate_normal(tgt[:2], R), R, sensor=sen_list[1]) for tgt in tgt_list]
+                [models.Obs(np.random.multivariate_normal(tgt[:2], R), R) for tgt in tgt_list if sensor.is_tgt_in_range(tgt)], sensor=sensor
             )
+
+        for tgt in tgt_list:
+            tgt[:2] += tgt[2:]*scan_time
 
         tgt_art = plt.plot(
                 [tgt[0] for tgt in tgt_list ],
@@ -133,14 +171,28 @@ def sample_MultiSensorGNN():
             marker="D", color="r", alpha=.5, linestyle="None", label="trk"
         )
 
-        title = plt.text( 0, 0, "count:" + str(i_scan), size = 10 )
+        sen_art = plt.plot(
+            [sen.px for sen in sen_list],
+            [sen.py for sen in sen_list],
+            marker="D", color="g", alpha=.5, linestyle="None", label="trk"
+        )
 
-        art_list.append( trk_art + tgt_art + [title] )
+        pat_art = [plt.gca().add_patch(pat.Wedge(
+            center=(sen.px, sen.py),
+            r=sen.range,
+            theta1=-sen.width*180/cmath.pi/2,
+            theta2=+sen.width*180/cmath.pi/2,
+            color="g",
+            alpha=0.2
+        )) for sen in sen_list]
 
-        for tgt in tgt_list:
-            tgt[:2] += tgt[2:]*scan_time
+        ax_pos = plt.gca().get_position()
+        count = fig.text( ax_pos.x1-0.1, ax_pos.y1-0.05, "count:" + str(i_scan), size = 10 )
 
-    _ = ani.ArtistAnimation(fig, art_list, interval=1000)
+        art_list.append( trk_art + tgt_art + sen_art + pat_art + [count] )
+
+
+    _ = ani.ArtistAnimation(fig, art_list, interval=200)
     plt.show()
 
 
@@ -196,6 +248,8 @@ def sample_JPDA():
 
     art_list =[]
     fig = plt.figure()
+    plt.axis("equal")
+    plt.grid()
 
     for i_scan in range(10):
 
@@ -215,9 +269,10 @@ def sample_JPDA():
             marker="D", color="r", alpha=.5, linestyle="None", label="trk"
         )
 
-        title = plt.text( 0, 0, "count:" + str(i_scan), size = 10 )
+        ax_pos = plt.gca().get_position()
+        count = fig.text( ax_pos.x1-0.1, ax_pos.y1-0.05, "count:" + str(i_scan), size = 10 )
 
-        art_list.append( trk_art + tgt_art + [title] )
+        art_list.append( trk_art + tgt_art + [count] )
 
         for tgt in tgt_list:
             tgt[:2] += tgt[2:]*scan_time

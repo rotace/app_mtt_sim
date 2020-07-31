@@ -13,7 +13,6 @@ class TestTrackers(unittest.TestCase):
     def test_GNN(self):
         tracker = trackers.GNN(
             sensor=sensors.BaseSensor(
-                dT=1.0,
                 PD=0.7,
                 VC=1.0,
                 PFA=1e-6,
@@ -59,7 +58,6 @@ class TestTrackers(unittest.TestCase):
 
         tracker = trackers.JPDA(
             sensor=sensors.BaseSensor(
-                dT=1.0,
                 PD=0.7,
                 VC=1.0,
                 PFA=1e-6,
@@ -136,7 +134,6 @@ class TestTrackers(unittest.TestCase):
     def test_MHT(self):
         tracker = trackers.MHT(
             sensor=sensors.BaseSensor(
-                dT=1.0,
                 PD=0.7,
                 VC=1.0,
                 PFA=1e-6,
@@ -175,10 +172,9 @@ class TestTrackers(unittest.TestCase):
     def test_TrackerEvaluator(self):
 
         eval = trackers.TrackerEvaluator(
-            trackers.GNN(
+            tracker = trackers.GNN(
                 sensor=sensors.BaseSensor(
                     R=np.diag([0.001,0.001]),
-                    dT=1.0,
                     PD=0.7,
                     VC=1.0,
                     PFA=1e-6,
@@ -196,12 +192,12 @@ class TestTrackers(unittest.TestCase):
                     track=tracks.ScoreManagedTrack
                 )
             ),
-            tgt_list=[
+            tgt_list = [
                 models.SimpleTarget(SD=2, x0=[ 0., 0.,+0.,+1.], start_time=0.0),
                 models.SimpleTarget(SD=2, x0=[ 0.,10.,+1.,-1.], start_time=0.0),
                 models.SimpleTarget(SD=2, x0=[10.,10.,-1.,-1.], start_time=0.0),
                 models.SimpleTarget(SD=2, x0=[10., 0.,+0.,+1.], start_time=1.0)
-            ])
+            ]
         )
 
         # eval.plot_position()

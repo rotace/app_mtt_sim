@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import models
-
+import sensors
 
 class BaseTrackFactory():
     """ Track Factory Base Class """
@@ -75,18 +75,21 @@ class BaseTrack():
     def assign(self, obs):
         # set data
         self.obs_list.append(copy.deepcopy(obs))
-        self.scr_list.append(self._calc_match_score(obs))
         self.mdl_list.append(copy.deepcopy(self.model))
         self.cnt_list.append(self.cnt_list[-1]+1)
+        self.scr_list.append(self._calc_match_score(obs))
         # update model
         self.model.update(obs)
 
-    def unassign(self):
+    def unassign(self, sensor=sensors.BaseSensor()):
         # set data
         self.obs_list.append(None)
-        self.scr_list.append(self._calc_miss_score())
         self.mdl_list.append(copy.deepcopy(self.model))
         self.cnt_list.append(self.cnt_list[-1]+1)
+        if not sensor or not sensor.is_trk_in_range(self):
+            self.scr_list.append(self._calc_not_in_range_score())
+        else:
+            self.scr_list.append(self._calc_miss_score())
         # update model
         self.model.update(None)
 
@@ -129,6 +132,9 @@ class BaseTrack():
 
     def _calc_miss_score(self):
         return self.scr_list[-1] + self.sensor.calc_miss_dLLR()
+    
+    def _calc_not_in_range_score(self):
+        return self.scr_list[-1]
   
     def plot_obs_list(self):
         plt.plot(

@@ -14,16 +14,28 @@ IGNORE_THRESH = -1000000
 class BaseTracker():
     """ Tracker Base Class """
 
-    def __init__(self, sensor, model_factory, track_factory):
+    def __init__(self, model_factory, track_factory, sensor=None, sen_list=None):
 
-        if isinstance(sensor, list):
-            self.sen_list = sensor
-            self.sensor = None
-        elif isinstance(sensor, sensors.BaseSensor):
-            self.sen_list = [sensor]
-            self.sensor = sensor
-        else:
-            assert False, "sensor invalid, actual:" + str(type(sensor))
+        if not sensor and not sen_list:
+            assert False, "either sensor or sen_list should be set!"
+
+        if sen_list:
+            if isinstance(sen_list, list):
+                self.sen_list = sen_list
+
+                if len(sen_list)==1:
+                    self.sensor = sen_list[-1]
+                else:
+                    self.sensor = None
+            else:
+                assert False, "sen_list invalid, actual:" + str(type(sen_list))
+
+        if sensor:
+            if isinstance(sensor, sensors.BaseSensor):
+                self.sen_list = [sensor]
+                self.sensor = sensor
+            else:
+                assert False, "sensor invalid, actual:" + str(type(sensor))
 
         self.track_factory = track_factory
         self.timestamp = 0
@@ -33,9 +45,25 @@ class BaseTracker():
             model_factory=model_factory
         )
 
-    def update(self):
+    def _dT(self):
+        return self.track_factory.model_factory.dT
+
+    def _update(self):
         self.timestamp += 1
-        [ sen.update() for sen in self.sen_list ]
+        [ sen.update(self._dT()) for sen in self.sen_list ]
+
+    def _preprocess(self, obs_list, sensor="NO_SENSOR", **kwargs):
+        if sensor == "NO_SENSOR":
+            assert len(self.sen_list)==1, "should set sensor at this scan if multi sensor tracking!"
+            assert self.sensor is self.sen_list[-1], "sensor invalid!, actual:" + str(self.sensor)
+        else:
+            self.sensor = sensor
+
+        for obs in obs_list:
+            assert self.sensor, "There are obs but sensor is None!"
+            assert self.sensor in self.sen_list, "sensor not in sen_list!, actual(sensor):" + str(self.sensor) + ", actual(sen_list):" + str(self.sen_list)
+            assert obs.sensor is None
+            obs.sensor = self.sensor
 
     def _calc_price_matrix(self, hyp, obs_list):
         # init
@@ -49,15 +77,18 @@ class BaseTracker():
         
         # set match price
         for i, trk in enumerate(hyp.trk_list):
-            S[i, range(N)] = [
-                trk.calc_match_price(obs)
-                if trk.is_in_gate(obs) else IGNORE_THRESH
-                for obs in obs_list
-            ]
+
+            if self.sensor and self.sensor.is_trk_in_range(trk):
+
+                S[i, range(N)] = [
+                    trk.calc_match_price(obs)
+                    if trk.is_in_gate(obs) else IGNORE_THRESH
+                    for obs in obs_list
+                ]
         
         return S
 
-    def register_scan(self, obs_list):
+    def register_scan(self, obs_list, **kwargs):
         raise NotImplementedError
 
 
@@ -69,27 +100,13 @@ class GNN(BaseTracker):
         ref) Design and Analysis of Modern Tracking Systems
                     6.4 Global Nearest Neighbor Method
     """
-    def __init__(self, sensor, model_factory, track_factory):
-        super().__init__(
-            sensor=sensor,
-            model_factory=model_factory,
-            track_factory=track_factory
-        )
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.trk_list = []
 
-    def register_scan(self, obs_list):
-        self.update()
+    def register_scan(self, obs_list, **kwargs):
 
-        # preprocess for obs
-        for obs in obs_list:
-            if obs.sensor:
-                # normal use case (support single sensor and multi sensors)
-                pass
-            elif not obs.sensor and self.sensor:
-                # easy use case (support single sensor only)
-                obs.sensor = self.sensor
-            else:
-                assert False, "both obs.sensor and tracker.sensor invalid"
+        self._preprocess(obs_list, **kwargs)
 
         #---- calc price
 
@@ -120,12 +137,15 @@ class GNN(BaseTracker):
 
         # update trackfile without observation
         for i_trk in unassign:
-            self.trk_list[i_trk].unassign()
+            self.trk_list[i_trk].unassign(self.sensor)
 
         #---- track confirmation and deletion
         
         # delete trackfile
         self.trk_list = [ trk for trk in self.trk_list if not trk.judge_deletion() ]
+
+        # update for next time (tracker, sensor, etc.)
+        self._update()
 
         # confirmation and representation
         return [ trk for trk in self.trk_list if trk.judge_confirmation() ]
@@ -138,27 +158,13 @@ class JPDA(BaseTracker):
         ref) Design and Analysis of Modern Tracking Systems
                     6.6 The All-Neighbors Data Association Approach
     """
-    def __init__(self, sensor, model_factory, track_factory):
-        super().__init__(
-            sensor=sensor,
-            model_factory=model_factory,
-            track_factory=track_factory
-        )
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.trk_list = []
 
-    def register_scan(self, obs_list):
-        self.update()
+    def register_scan(self, obs_list, **kwargs):
 
-        # preprocess for obs
-        for obs in obs_list:
-            if obs.sensor:
-                # normal use case (support single sensor and multi sensors)
-                pass
-            elif not obs.sensor and self.sensor:
-                # easy use case (support single sensor only)
-                obs.sensor = self.sensor
-            else:
-                assert False, "both obs.sensor and tracker.sensor invalid"
+        self._preprocess(obs_list, **kwargs)
 
         #---- calc price
 
@@ -232,6 +238,9 @@ class JPDA(BaseTracker):
         # delete trackfile
         self.trk_list = [ trk for trk in self.trk_list if not trk.judge_deletion() ]
 
+        # update for next time (tracker, sensor, etc.)
+        self._update()
+
         # confirmation and representation
         return [ trk for trk in self.trk_list if trk.judge_confirmation() ]
 
@@ -251,27 +260,13 @@ class MHT(BaseTracker):
         def create(self):
             return copy.deepcopy(self)
 
-    def __init__(self, sensor, model_factory, track_factory):
-        super().__init__(
-            sensor=sensor,
-            model_factory=model_factory,
-            track_factory=track_factory
-        )
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.hyp_list = []
 
-    def register_scan(self, obs_list):
-        self.update()
+    def register_scan(self, obs_list, **kwargs):
 
-        # preprocess for obs
-        for obs in obs_list:
-            if obs.sensor:
-                # normal use case (support single sensor and multi sensors)
-                pass
-            elif not obs.sensor and self.sensor:
-                # easy use case (support single sensor only)
-                obs.sensor = self.sensor
-            else:
-                assert False, "both obs.sensor and tracker.sensor invalid"
+        self._preprocess(obs_list, **kwargs)
 
         if not self.hyp_list:
             self.hyp_list.append(self.Hypothesis(trk_list=[]))
@@ -310,14 +305,18 @@ class MHT(BaseTracker):
 
             # update trackfile without observation
             for i_trk in unassign:
-                child_hyp.trk_list[i_trk].unassign()
+                child_hyp.trk_list[i_trk].unassign(self.sensor)
 
             #---- track confirmation and deletion
             child_hyp_list.append(child_hyp)
 
         self.hyp_list = child_hyp_list
 
+        # update for next time (tracker, sensor, etc.)
+        self._update()
 
+        # TODO: confirmation and representation
+        return []
 
 
 class TOMHT(BaseTracker):
@@ -361,9 +360,6 @@ class TrackerEvaluator():
             self.PFA= self.sensor.param["PFA"]
         else:
             self.PFA = PFA
-
-    def _dT(self):
-        return self.tracker.track_factory.model_factory.dT
 
     def _initialize_simulation(self):
         return (copy.deepcopy(self.tracker), copy.deepcopy(self.tgt_list))
@@ -411,7 +407,7 @@ class TrackerEvaluator():
         trk_list = tracker.register_scan(obs_list)
 
         # tgt_list update
-        [ tgt.update(self._dT()) for tgt in tgt_list ]
+        [ tgt.update(self.tracker._dT()) for tgt in tgt_list ]
 
         # calc MOF (Measure of Fit) and assignment
         S = self._calc_price_matrix(tgt_list, trk_list)
@@ -504,9 +500,10 @@ class TrackerEvaluator():
                     marker="D", color="g", alpha=.5, linestyle="None", label="obs"
                 )
 
-            title = plt.text( -40, -40, "count:" + str(i_scan), size = 10 )
+            ax_pos = plt.gca().get_position()
+            count = fig.text( ax_pos.x1-0.1, ax_pos.y1-0.05, "count:" + str(i_scan), size = 10 )
 
-            arts.append( tgt_art + trk_art + obs_art + [title] )
+            arts.append( tgt_art + trk_art + obs_art + [count] )
             if i_scan == 1:
                 plt.legend()
                 plt.axis("equal")
@@ -574,7 +571,7 @@ class TrackerEvaluator():
                 # Tc =   E(X): expected value of random value X
                 # FX = CDF(x): cumulative density function
                 #       QF(x): quantile function
-                x = np.array(range(n_scan)) * self._dT()
+                x = np.array(range(n_scan)) * self.tracker._dT()
                 FX = Nc[i_tgt, :]/n_run
                 # Tc = E(X) = integral( 1-CDF(x) )
                 Tc[i_tgt] = integrate.simps(1.0-FX, x)
