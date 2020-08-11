@@ -9,6 +9,7 @@ import os
 import sys
 import cmath
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as pat
 import matplotlib.animation as ani
@@ -18,6 +19,7 @@ import models
 import tracks
 import sensors
 import trackers
+import viewers
 from notebook import IRSTexample
 
 def main():
@@ -70,25 +72,17 @@ def sample_MultiSensorGNN():
     sigma_vx  = 18.0
     sigma_vy  =  4.0
 
-    class Radar2DSensor(sensors.BaseSensor):
+    class Radar2DSensor(sensors.Polar2DSensor):
         def __init__(self, **kwargs):
             super().__init__(**kwargs)
-            self.px = kwargs["INIT_POSITION"][0]
-            self.py = kwargs["INIT_POSITION"][1]
-            self.vx = kwargs["CRUISE_SPEED"][0]
-            self.vy = kwargs["CRUISE_SPEED"][1]
-            self.range = kwargs["DETECT_RANGE"]
-            self.width = kwargs["DETECT_WIDTH"]
-        def update(self, dT, *args, **kwargs):
-            super().update(dT, *args, **kwargs)
-            self.px += self.vx*dT
-            self.py += self.vy*dT
+
         def is_trk_in_range(self, trk):
-            dist, azim = cmath.polar( (trk.model.x[0]-self.px) + 1j*(trk.model.x[1]-self.py) )
-            return dist < self.range and abs(azim) < self.width/2
+            dist, azim = cmath.polar( (trk.model.x[0]-self.x[0]) + 1j*(trk.model.x[1]-self.x[1]) )
+            return self.range_min < dist < self.range_max and abs(azim-self.angle) < self.width/2
+
         def is_tgt_in_range(self, tgt):
-            dist, azim = cmath.polar( (tgt[0]-self.px) + 1j*(tgt[1]-self.py) )
-            return dist < self.range and abs(azim) < self.width/2
+            dist, azim = cmath.polar( (tgt[0]-self.x[0]) + 1j*(tgt[1]-self.x[1]) )
+            return self.range_min < dist < self.range_max and abs(azim-self.angle) < self.width/2
 
     sen_list = [
         Radar2DSensor(
@@ -96,9 +90,10 @@ def sample_MultiSensorGNN():
             VC=1.0,
             PFA=PFA,
             BNT=0.03,
-            INIT_POSITION=(0.0, 10.0),
-            CRUISE_SPEED=(1.0, 0.0),
-            DETECT_RANGE=40,
+            x0=np.array([0.0, 10.0, 1.0, 0.0]),
+            angle0=15/180*cmath.pi,
+            DETECT_RANGE_MAX=40,
+            DETECT_RANGE_MIN=10,
             DETECT_WIDTH=120/180*cmath.pi
         ),
         Radar2DSensor(
@@ -106,9 +101,10 @@ def sample_MultiSensorGNN():
             VC=1.0,
             PFA=PFA,
             BNT=0.03,
-            INIT_POSITION=(50.0, 10.0),
-            CRUISE_SPEED=(1.0, 0.0),
-            DETECT_RANGE=40,
+            x0=np.array([50.0, 10.0, 1.0, 0.0]),
+            angle0=-15/180*cmath.pi,
+            DETECT_RANGE_MAX=40,
+            DETECT_RANGE_MIN=10,
             DETECT_WIDTH=120/180*cmath.pi
         )
     ]
@@ -134,67 +130,44 @@ def sample_MultiSensorGNN():
         np.array([100.,20.,-1.,-0.2])
     ]
 
-    art_list =[]
-    fig = plt.figure()
-    plt.axis("equal")
-    plt.grid()
+    obs_df = pd.DataFrame()
+    tgt_df = pd.DataFrame()
+    trk_df = pd.DataFrame()
+    sen_df = pd.DataFrame()
 
     for i_scan in range(100):
+        timestamp = pd.Timestamp(i_scan, unit="s")
 
         if not i_scan % 5:
             # scan by sensor0 (once in 5 times)
             sensor = sen_list[0]
             R = np.eye(2) * 0.01
-            trk_list = tracker.register_scan(
-                [models.Obs(np.random.multivariate_normal(tgt[:2], R), R) for tgt in tgt_list if sensor.is_tgt_in_range(tgt)], sensor=sensor
-            )
+            obs_list = [models.Obs(np.random.multivariate_normal(tgt[:2], R), R) for tgt in tgt_list if sensor.is_tgt_in_range(tgt)]
+            trk_list = tracker.register_scan(obs_list, sensor=sensor)
         else:
             # scan by sensor1 (everytime except sensor0 turn)
             sensor = sen_list[1]
             R = np.eye(2) * 0.01
-            trk_list = tracker.register_scan(
-                [models.Obs(np.random.multivariate_normal(tgt[:2], R), R) for tgt in tgt_list if sensor.is_tgt_in_range(tgt)], sensor=sensor
-            )
+            obs_list = [models.Obs(np.random.multivariate_normal(tgt[:2], R), R) for tgt in tgt_list if sensor.is_tgt_in_range(tgt)]
+            trk_list = tracker.register_scan(obs_list, sensor=sensor)
 
         for tgt in tgt_list:
             tgt[:2] += tgt[2:]*scan_time
 
-        tgt_art = plt.plot(
-                [tgt[0] for tgt in tgt_list ],
-                [tgt[1] for tgt in tgt_list ],
-                marker="D", color="b", alpha=.5, linestyle="None", label="tgt"
-            )
+        # save as dataframe
+        obs_df = obs_df.append( [ obs.to_series(timestamp, i_scan) for obs in obs_list ] )
+        trk_df = trk_df.append( [ trk.to_series(timestamp, i_scan) for trk in trk_list ] )
+        tgt_df = tgt_df.append( [ pd.Series([i_scan, tgt[0], tgt[1]], index=["SCAN_ID", "ARRAY0", "ARRAY1"], name=timestamp) for tgt in tgt_list] )
+        sen_df = sen_df.append( [ sen.to_series(timestamp, i_scan) for sen in sen_list ] )
 
-        trk_art = plt.plot(
-            [trk.model.x[0] if trk is not None else None for trk in trk_list ],
-            [trk.model.x[1] if trk is not None else None for trk in trk_list ],
-            marker="D", color="r", alpha=.5, linestyle="None", label="trk"
-        )
+    # export dataframe as csv
+    models.ModelType.add_mdl_info(obs_df, tracker.y_mdl_type()).to_csv("obs.csv")
+    models.ModelType.add_mdl_info(trk_df, tracker.x_mdl_type()).to_csv("trk.csv")
+    models.ModelType.add_mdl_info(tgt_df, tracker.y_mdl_type()).to_csv("tgt.csv")
+    sen_df.to_csv("sen.csv")
 
-        sen_art = plt.plot(
-            [sen.px for sen in sen_list],
-            [sen.py for sen in sen_list],
-            marker="D", color="g", alpha=.5, linestyle="None", label="trk"
-        )
-
-        pat_art = [plt.gca().add_patch(pat.Wedge(
-            center=(sen.px, sen.py),
-            r=sen.range,
-            theta1=-sen.width*180/cmath.pi/2,
-            theta2=+sen.width*180/cmath.pi/2,
-            color="g",
-            alpha=0.2
-        )) for sen in sen_list]
-
-        ax_pos = plt.gca().get_position()
-        count = fig.text( ax_pos.x1-0.1, ax_pos.y1-0.05, "count:" + str(i_scan), size = 10 )
-
-        art_list.append( trk_art + tgt_art + sen_art + pat_art + [count] )
-
-
-    _ = ani.ArtistAnimation(fig, art_list, interval=200)
-    plt.show()
-
+    # view
+    viewers.main()
 
 def sample_JPDA():
     """

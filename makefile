@@ -5,7 +5,13 @@
 all:
 
 run:
-	python main.py
+	python3 main.py
+
+view:
+	python3 viewers.py
 
 test:
-	python -m unittest
+	python3 -m unittest
+
+clean:
+	rm -rf *.csv

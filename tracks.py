@@ -1,5 +1,6 @@
 import copy
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 import models
@@ -10,7 +11,6 @@ class BaseTrackFactory():
     def __init__(self, track, **kwargs):
         self.track = track
         self.param = kwargs
-        self.track_id_counter = 0
 
     def set_attr(self, **kwargs):
         if "model_factory" in kwargs:
@@ -19,7 +19,6 @@ class BaseTrackFactory():
             self.tracker = kwargs["tracker"]
 
     def create(self, obs):
-        self.track_id_counter += 1
 
         if hasattr(self, "tracker"):
             timestamp = self.tracker.timestamp
@@ -29,7 +28,6 @@ class BaseTrackFactory():
         return self.track(
             obs,
             self.model_factory,
-            trk_id=self.track_id_counter,
             timestamp=timestamp,
             **self.param
         )
@@ -47,14 +45,16 @@ class BaseTrack():
      * Use Kalman Filter
      * Use Log Likelihood Ratio as Score
     """
+    trk_id_counter = 0
+    @classmethod
+    def _generate_id(cls):
+        cls.trk_id_counter+=1
+        return cls.trk_id_counter
 
     def __init__(self, obs, model_factory, **kwargs):
         # set param
         if "gate" not in kwargs:
             kwargs["gate"] = None
-        
-        if "trk_id" not in kwargs:
-            kwargs["trk_id"] = 0
         
         if "timestamp" not in kwargs:
             kwargs["timestamp"] = 0
@@ -68,9 +68,19 @@ class BaseTrack():
         # create model
         self.model = model_factory.create(obs)
         self.mdl_list = [copy.deepcopy(self.model)]
+        self.trk_id = BaseTrack._generate_id()
     
     def get_id(self):
-        return self.param["trk_id"]
+        return self.trk_id
+        
+    def to_series(self, timestamp, scan_id):
+        assert isinstance(timestamp, pd.Timestamp), "timestamp is invalid, actual:"+str(timestamp)
+        x_lbl = [ "ARRAY"+str(v) for v in range(len(self.model.x)) ]
+        trk_id = self.get_id()
+        obs_id = self.obs_list[-1].get_id() if self.obs_list[-1] else None
+        value=[scan_id, trk_id, obs_id]+list(self.model.x) 
+        label=["SCAN_ID", "TRK_ID", "OBS_ID"]+x_lbl
+        return pd.Series(value, index=label, name=timestamp)
 
     def assign(self, obs):
         # set data

@@ -45,6 +45,12 @@ class BaseTracker():
             model_factory=model_factory
         )
 
+    def x_mdl_type(self):
+        return self.track_factory.model_factory._x_type
+        
+    def y_mdl_type(self):
+        return self.track_factory.model_factory._y_type
+
     def _dT(self):
         return self.track_factory.model_factory.dT
 

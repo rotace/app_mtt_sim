@@ -105,3 +105,4 @@ venv.bak/
 
 # users
 octave-workspace
+*.csv

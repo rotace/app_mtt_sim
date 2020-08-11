@@ -1,6 +1,7 @@
 import copy
 import enum
 import numpy as np
+import pandas as pd
 from scipy.linalg import block_diag
 
 import sensors
@@ -41,6 +42,13 @@ class ValueType(enum.Enum):
     SPEED = enum.auto()
     # -- Attribute Value
     INTENSITY = enum.auto()
+
+    @staticmethod
+    def rename_df_cols(df, val_type):
+        if val_type:
+            return df.rename(columns={ "ARRAY"+str(i):v.name for i, v in enumerate(val_type) })
+        else:
+            return df
 
     @staticmethod
     def generate_value_type(crd_type, SD, RD, is_vel_measure_enabled):
@@ -116,14 +124,66 @@ class ModelType:
         return x
 
     @staticmethod
+    def add_mdl_info(df, mdl_type):
+        if "ARRAY0" in df.columns:
+            df.insert(df.columns.get_loc("ARRAY0"), "CRD_TYPE", mdl_type.crd_type.name)
+        return ValueType.rename_df_cols(df, mdl_type.val_type)
+
+    @staticmethod
     def generate_model_type(crd_type, SD, RD, is_vel_measure_enabled=False):
         val_type = ValueType.generate_value_type(crd_type, SD, RD, is_vel_measure_enabled)
         mdl_type = ModelType(crd_type, val_type, SD, RD)
         return mdl_type
 
+    @staticmethod
+    def convert_x(x_from, type_from, type_into):
+        """ convert x_type from A into B
+
+        type_from is cartesian, so
+        if type_into is cartesian, no conversion
+        if type_into is polar, convert into polar
+        """
+
+        if type_from.crd_type == type_into.crd_type:
+            return ( x_from, type_from )
+
+        if type_from.crd_type == CoordType.CART:
+            
+            if type_into.crd_type == CoordType.POLAR:
+                if 1 <= type_from.SD <= 2:
+                    x = np.zeros((type_from.RD, 3))
+                    x[:type_from.RD,:type_from.SD] = x_from.reshape((type_from.RD, type_from.SD))
+                    x = x.flatten()
+                elif type_from.SD == 3:
+                    x = x_from
+                else:
+                    assert False, "type_from.SD invalid, actual:" + str(type_from.SD)
+
+                x = utils.cart2polar(x)
+                x_type = ModelType.generate_model_type(crd_type=CoordType.POLAR,SD=3,RD=3)
+
+            else:
+                raise NotImplementedError
+        else:
+                raise NotImplementedError
+
+        return (x, x_type)
+
+    @staticmethod
+    def diff_x(x_a, type_a, x_b, type_b ):
+        x_a, type_a = ModelType.convert_x(x_a, type_a, type_b)
+        x_common_type = list(set(type_a.val_type) & set(type_b.val_type))
+        dx = type_b.extract_x(x_b, x_common_type) - type_a.extract_x(x_a, x_common_type)
+        return (dx, ModelType(type_a.crd_type, x_common_type, SD=None, RD=None))
+
 
 class Obs():
     """ Observation """
+    obs_id_counter = 0
+    @classmethod
+    def _generate_id(cls):
+        cls.obs_id_counter+=1
+        return cls.obs_id_counter
 
     def __init__(self, y, R, sensor=None):
         """Initialize Observation
@@ -139,7 +199,17 @@ class Obs():
         self.y = y
         self.R = R
         self.sensor = sensor
+        self.obs_id = Obs._generate_id()
 
+    def get_id(self):
+        return self.obs_id
+
+    def to_series(self, timestamp, scan_id):
+        assert isinstance(timestamp, pd.Timestamp), "timestamp is invalid, actual:"+str(timestamp)
+        y_lbl = [ "ARRAY"+str(v) for v in range(len(self.y)) ]            
+        value=[scan_id, self.get_id()]+list(self.y) 
+        label=["SCAN_ID", "OBS_ID"]+y_lbl
+        return pd.Series(value, index=label, name=timestamp)
 
 
 class KalmanModel():
@@ -552,6 +622,13 @@ class Target():
         self.start_time = start_time
         self.end_time = end_time
 
+    def to_series(self, timestamp, scan_id):
+        assert isinstance(timestamp, pd.Timestamp), "timestamp is invalid, actual:"+str(timestamp)
+        x_lbl = [ "ARRAY"+str(v) for v in range(len(self.x)) ]            
+        value=[scan_id]+list(self.x) 
+        label=["SCAN_ID"]+x_lbl
+        return pd.Series(value, index=label, name=timestamp)
+
     def update_x(self, T, dT):
         raise NotImplementedError
 
@@ -564,46 +641,14 @@ class Target():
     
     def calc_match_price(self, model):
         gate = 13.3
-        x_tgt, x_tgt_type = self.convert_x_into(mdl_type=model._x_type)
-        x_common_type = list(set(x_tgt_type.val_type) & set(model._x_type.val_type))
-        dx = model._x_type.extract_x(model.x, x_common_type) - x_tgt_type.extract_x(x_tgt, x_common_type)
-        P  = model._x_type.extract_x(model.P, x_common_type)
+        dx, dx_type = ModelType.diff_x(self.x, self._x_type, model.x, model._x_type)
+        P  = model._x_type.extract_x(model.P, dx_type.val_type)
         dist = dx @ np.linalg.inv(P) @ dx
         return gate - dist
 
     def is_in_gate(self, model):
         return self.calc_match_price(model) > 0
     
-    def convert_x_into(self, mdl_type):
-        """ convert target's x_type into model's x_type
-
-        target's x_type is cartesian, so
-        if model's x_type is cartesian, no conversion
-        if model's x_type is polar, convert into polar
-        """
-
-        if   mdl_type.crd_type == CoordType.CART:
-            x = self.x
-            x_type = self._x_type
-
-        elif mdl_type.crd_type == CoordType.POLAR:
-            if 1 <= self.SD <= 2:
-                x = np.zeros((self.RD, 3))
-                x[:self.RD,:self.SD] = self.x.reshape((self.RD, self.SD))
-                x = x.flatten()
-            elif self.SD == 3:
-                x = self.x
-            else:
-                assert False, "self.SD invalid, actual:" + str(self.SD)
-
-            x = utils.cart2polar(x)
-            x_type = ModelType.generate_model_type(crd_type=CoordType.POLAR,SD=3,RD=3)
-
-        else:
-            raise NotImplementedError
-        
-        return (x, x_type)
-
 
 class SimpleTarget(Target):
     """ Simple Target Maneuver Model (1D~3D, posit/veloc/accel)
