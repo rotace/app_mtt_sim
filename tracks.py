@@ -27,7 +27,7 @@ class BaseTrackFactory():
 
         return self.track(
             obs,
-            self.model_factory,
+            self.model_factory.create(obs),
             timestamp=timestamp,
             **self.param
         )
@@ -51,7 +51,7 @@ class BaseTrack(models.BaseExporter):
         cls.trk_id_counter+=1
         return cls.trk_id_counter
 
-    def __init__(self, obs, model_factory, **kwargs):
+    def __init__(self, obs, model, **kwargs):
         # set param
         if "gate" not in kwargs:
             kwargs["gate"] = None
@@ -65,8 +65,7 @@ class BaseTrack(models.BaseExporter):
         self.obs_list = [copy.deepcopy(obs)]
         self.scr_list = [self._calc_init_score(obs)]
         self.cnt_list = [self.param["timestamp"]]
-        # create model
-        self.model = model_factory.create(obs)
+        self.model = model
         self.mdl_list = [copy.deepcopy(self.model)]
         self.trk_id = BaseTrack._generate_id()
     
@@ -75,12 +74,52 @@ class BaseTrack(models.BaseExporter):
         
     def to_series(self, timestamp, scan_id):
         series = super().to_series(timestamp, scan_id)
-        x_lbl = [ "ARRAY"+str(v) for v in range(len(self.model.x)) ]
+        # integer
         trk_id = self.get_id()
-        obs_id = self.obs_list[-1].get_id() if self.obs_list[-1] else None
-        value=[trk_id, obs_id]+list(self.model.x) 
-        label=["TRK_ID", "OBS_ID"]+x_lbl
-        return series.append( pd.Series(value, index=label) )
+        obs_id = self.obs_list[-1].get_id() if self.obs_list[-1] else -1
+        value=[trk_id, obs_id] 
+        label=["TRK_ID", "OBS_ID"]
+        series = series.append( pd.Series(value, index=label) )
+        # string
+        value=[self.model._x_type.crd_type.name]
+        label=["CRD_TYPE"]
+        series = series.append( pd.Series(value, label) )
+        # real
+        x_val = list(self.model.x)
+        x_lbl = [ v.name for v in self.model._x_type.val_type ]
+        P_val = [ pij for i, pi in enumerate(self.model.P) for j, pij in enumerate(pi) if i<=j ]
+        P_lbl = [ "P" + str(i) + str(j) for i in range(self.model.P.shape[0]) for j in range(self.model.P.shape[1]) if i<=j]
+        return series.append( pd.Series(x_val+P_val, index=x_lbl+P_lbl, dtype=float) )
+
+    @staticmethod
+    def from_series(series):
+        assert isinstance(series, pd.Series), "series is invalid, actual:"  + str(type(series))
+        cov_type_str = [ cv for cv in series.index.values if cv[0] == "P" ]
+        val_type_str = list(set(series.index.values) &  {vt.name for vt in models.ValueType})
+        val_type = [ vt  for vt_str in val_type_str for vt in models.ValueType if vt_str == vt.name ]
+        mdl_type = models.ModelType(series["CRD_TYPE"], val_type, None, None)
+        x = series[val_type_str].values
+        p = series[cov_type_str].values
+        P = np.zeros((len(x), len(x)))
+        idx=0
+        for i in range(len(x)):
+            for j in range(len(x)):
+                if i<=j:
+                    P[i,j] = p[idx]
+                    idx += 1
+        P = np.triu(P) + np.triu(P).T
+        class DummyModel():
+            def __init__(self, x, P, x_type):
+                self.x = x
+                self.P = P
+                self._x_type = x_type
+        class DummyTrack():
+            def __init__(self, model, trk_id):
+                self.model = model
+                self.trk_id = trk_id
+            def get_id(self):
+                return self.trk_id
+        return DummyTrack(model=DummyModel(x=x, P=P, x_type=mdl_type), trk_id=series["TRK_ID"])
 
     def assign(self, obs):
         # set data

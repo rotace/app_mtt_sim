@@ -41,9 +41,10 @@ class TestTracks(unittest.TestCase):
             tracker.count = k
 
             if k==0:
+                obs = models.Obs(tgt[:2], np.eye(2), tracker.sensor )
                 trk = tracks.SimpleManagedTrack(
-                    models.Obs(tgt[:2], np.eye(2), tracker.sensor ) ,
-                    tracker.model_factory,
+                    obs,
+                    tracker.model_factory.create(obs),
                     ND=ND
                 )
                 
@@ -109,9 +110,10 @@ class TestTracks(unittest.TestCase):
             tracker.count = k
 
             if k==0:
+                obs = models.Obs(tgt[:2], np.eye(2), tracker.sensor )
                 trk = tracks.ScoreManagedTrack(
-                    models.Obs(tgt[:2], np.eye(2), tracker.sensor ) ,
-                    tracker.model_factory,
+                    obs,
+                    tracker.model_factory.create(obs),
                     PFD=PFD,
                     alpha=NFC/3600/NFA,
                     beta=0.1

@@ -7,6 +7,11 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as pat
 import matplotlib.animation as ani
 
+import utils
+import models
+import tracks
+import trackers
+
 obs_df = None
 trk_df = None
 tgt_df = None
@@ -14,7 +19,26 @@ sen_df = None
 
 def main():    
     # animation()
-    plot2D()
+    # plot2D()
+    statistics()
+
+
+def statistics():
+    # obs_list_df = pd.read_csv("obs.csv", index_col=0, parse_dates=True)
+    trk_df = pd.read_csv("trk.csv", index_col=0, parse_dates=True)
+    tgt_df = pd.read_csv("tgt.csv", index_col=0, parse_dates=True)
+    # sen_list_df = pd.read_csv("sen.csv", index_col=0, parse_dates=True)
+
+    scan_id_max = max( [ trk_df.SCAN_ID.max(), tgt_df.SCAN_ID.max() ] ) 
+    scan_id_min = min( [ trk_df.SCAN_ID.min(), tgt_df.SCAN_ID.min() ] ) 
+
+    trk_truth_df = pd.DataFrame()
+
+    for i_scan in range(int(scan_id_min), int(scan_id_max)):
+        tgt_list = [ models.BaseTarget.from_series(tgt_sr) for _, tgt_sr in tgt_df[tgt_df.SCAN_ID==i_scan].iterrows() ]
+        trk_list = [ tracks.BaseTrack.from_series(trk_sr) for _, trk_sr in  trk_df[trk_df.SCAN_ID==i_scan].iterrows() ]
+        trk_truth = trackers.TrackerEvaluator.calc_track_truth(tgt_list, trk_list)
+        print(trk_truth)
 
 
 def plot2D():
@@ -40,7 +64,7 @@ def plot2D():
     for trk_id in mer_df["TRK_ID"].unique():
 
         trk_data = mer_df[mer_df.TRK_ID == trk_id].sort_values("SCAN_ID_TRK")
-        trk_data = trk_data.dropna(subset=["OBS_ID"])
+        trk_data = trk_data[trk_data.OBS_ID!=-1]
         
         plt.plot(
             trk_data.POSIT_X_OBS.values, trk_data.POSIT_Y_OBS.values,
@@ -61,8 +85,8 @@ def animation():
     tgt_df = pd.read_csv("tgt.csv", index_col=0, parse_dates=True)
     sen_df = pd.read_csv("sen.csv", index_col=0, parse_dates=True)
 
-    scan_id_max = max( [obs_df["SCAN_ID"].max(), trk_df["SCAN_ID"].max(), tgt_df["SCAN_ID"].max() ] ) 
-    scan_id_min = min( [obs_df["SCAN_ID"].min(), trk_df["SCAN_ID"].min(), tgt_df["SCAN_ID"].min() ] ) 
+    scan_id_max = max( [obs_df.SCAN_ID.max(), trk_df.SCAN_ID.max(), tgt_df.SCAN_ID.max() ] ) 
+    scan_id_min = min( [obs_df.SCAN_ID.min(), trk_df.SCAN_ID.min(), tgt_df.SCAN_ID.min() ] ) 
 
     art_list =[]
     fig = plt.figure()

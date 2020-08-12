@@ -156,11 +156,14 @@ class Polar2DSensor(BaseSensor):
     def to_series(self, timestamp, scan_id):
         series = super().to_series(timestamp, scan_id)
         x_lbl = [ v.name for v in self.mdl_type.val_type ]
+        # string
         value=[Polar2DSensor.__name__]
         label=["SEN_TYPE"]
-        value+= list(self.x)+[self.angle-self.width/2, self.angle+self.width/2, self.range_min, self.range_max] 
-        label+= x_lbl+["THETA_MIN", "THETA_MAX", "RANGE_MIN", "RANGE_MAX"]
-        return series.append( pd.Series(value, index=label) )
+        series = series.append( pd.Series(value, label) )
+        # real
+        value= list(self.x)+[self.angle-self.width/2, self.angle+self.width/2, self.range_min, self.range_max] 
+        label= x_lbl+["THETA_MIN", "THETA_MAX", "RANGE_MIN", "RANGE_MAX"]
+        return series.append( pd.Series(value, index=label, dtype=float) )
 
     def update(self, dT, *args, **kwargs):
         super().update(dT, *args, **kwargs)

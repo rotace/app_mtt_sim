@@ -20,7 +20,7 @@ import models
 import tracks
 import sensors
 import trackers
-import viewers
+import analyzers
 from notebook import IRSTexample
 
 def main():
@@ -163,7 +163,6 @@ def sample_MultiSensorGNN():
 
     # add model info
     obs_df = models.ModelType.add_mdl_info(obs_df, tracker.y_mdl_type())
-    trk_df = models.ModelType.add_mdl_info(trk_df, tracker.x_mdl_type())
 
     # export dataframe as csv
     obs_df.to_csv("obs.csv")
@@ -184,8 +183,8 @@ def sample_MultiSensorGNN():
     sen_df.to_sql("sen", conn, if_exists="append", index=None)
     conn.close()
 
-    # view
-    viewers.main()
+    # analyse
+    analyzers.main()
 
 def sample_JPDA():
     """

@@ -7,8 +7,8 @@ all:
 run:
 	python3 main.py
 
-view:
-	python3 viewers.py
+anal:
+	python3 analyzers.py
 
 test:
 	python3 -m unittest

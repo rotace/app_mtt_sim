@@ -175,10 +175,25 @@ class ModelType:
         dx = type_b.extract_x(x_b, x_common_type) - type_a.extract_x(x_a, x_common_type)
         return (dx, ModelType(type_a.crd_type, x_common_type, SD=None, RD=None))
 
+    @staticmethod
+    def calc_match_price(tgt_model, trk_model):
+        """ Calc Match Price for MOE
+
+        * calc MOE(Measures of Effectiveness) etc.
+
+        ref) Design and Analysis of Modern Tracking Systems
+            13.6 MTT System Evaluation Metrics
+        """
+        gate = 13.3
+        dx, dx_type = ModelType.diff_x(tgt_model.x, tgt_model._x_type, trk_model.x,trk_model._x_type)
+        P  =trk_model._x_type.extract_x(trk_model.P, dx_type.val_type)
+        dist = dx @ np.linalg.inv(P) @ dx
+        return gate - dist
+
 
 class BaseExporter():
     """ Base Export Class """
-    
+
     def to_series(self, timestamp, scan_id):
         assert isinstance(timestamp, pd.Timestamp), "timestamp is invalid, actual:"+str(timestamp)
         value=[timestamp, scan_id]
@@ -214,10 +229,13 @@ class Obs(BaseExporter):
 
     def to_series(self, timestamp, scan_id):
         series = super().to_series(timestamp, scan_id)
-        y_lbl = [ "ARRAY"+str(v) for v in range(len(self.y)) ]            
-        value=[self.get_id(), self.sensor.get_id()]+list(self.y)
-        label=["OBS_ID", "SEN_ID"]+ y_lbl
-        return series.append( pd.Series(value, index=label) )
+        # integer
+        value=[self.get_id(), self.sensor.get_id()]
+        label=["OBS_ID", "SEN_ID"]
+        series = series.append( pd.Series(value, index=label) )
+        # real
+        y_lbl = [ "ARRAY"+str(v) for v in range(len(self.y)) ]
+        return series.append( pd.Series(list(self.y), index=y_lbl, dtype=float) )
 
 
 class KalmanModel():
@@ -227,7 +245,7 @@ class KalmanModel():
                     3.3 Kalman Filtering
                     3.4 Extended Kalman Filtering
     """
-    def __init__(self, x, F, H, P, Q, is_nonlinear ,x_type=None, y_type=None):
+    def __init__(self, x, F, H, P, Q, is_nonlinear=False ,x_type=None, y_type=None):
         assert isinstance(x, np.ndarray)
         assert isinstance(F, np.ndarray)
         assert isinstance(H, np.ndarray)
@@ -619,7 +637,7 @@ class BaseTarget(BaseExporter):
         cls.tgt_id_counter+=1
         return cls.tgt_id_counter
 
-    def __init__(self, SD=2, RD=3, x0=np.array([0., 0.]), start_time=0, end_time=np.inf):
+    def __init__(self, SD=2, RD=3, x0=np.array([0., 0.]), start_time=0, end_time=np.inf, x_type=None):
         assert 1 <= SD <= 3
         assert 2 <= RD <= 3
 
@@ -629,7 +647,10 @@ class BaseTarget(BaseExporter):
 
         self.x = np.zeros(self.XD)
         self.x[:len(x0)] = x0
-        self._x_type = ModelType.generate_model_type(crd_type=CoordType.CART,SD=self.SD,RD=self.RD)
+        if x_type:
+            self._x_type = x_type
+        else:
+            self._x_type = ModelType.generate_model_type(crd_type=CoordType.CART,SD=self.SD,RD=self.RD)
 
         self.current_time = 0
         self.start_time = start_time
@@ -642,11 +663,26 @@ class BaseTarget(BaseExporter):
 
     def to_series(self, timestamp, scan_id):
         series = super().to_series(timestamp, scan_id)
+        # integer
+        value=[self.get_id()]
+        label=["TGT_ID"]
+        series = series.append( pd.Series(value, index=label) )
+        # string
+        value=[self._x_type.crd_type.name]
+        label=["CRD_TYPE"]
+        series = series.append( pd.Series(value, label) )
+        # real
         x_lbl = [ v.name for v in self._x_type.val_type ]
-        value=[self.get_id()]+list(self.x) 
-        label=["TGT_ID"]+x_lbl
-        return series.append( pd.Series(value, index=label) )
+        return series.append( pd.Series(list(self.x), index=x_lbl, dtype=float) )
 
+    @staticmethod
+    def from_series(series):
+        assert isinstance(series, pd.Series), "series is invalid, actual:" + str(type(series))
+        val_type_str = list(set(series.index.values) &  {vt.name for vt in ValueType})
+        val_type = [ vt  for vt_str in val_type_str for vt in ValueType if vt_str == vt.name ]
+        mdl_type = ModelType(series["CRD_TYPE"], val_type, None, None)
+        x = series[val_type_str].values
+        return BaseTarget(x0=x, x_type=mdl_type)
 
     def update_x(self, T, dT):
         raise NotImplementedError
@@ -659,11 +695,7 @@ class BaseTarget(BaseExporter):
         return self.start_time <= self.current_time < self.end_time
     
     def calc_match_price(self, model):
-        gate = 13.3
-        dx, dx_type = ModelType.diff_x(self.x, self._x_type, model.x, model._x_type)
-        P  = model._x_type.extract_x(model.P, dx_type.val_type)
-        dist = dx @ np.linalg.inv(P) @ dx
-        return gate - dist
+        return ModelType.calc_match_price(self, model)
 
     def is_in_gate(self, model):
         return self.calc_match_price(model) > 0

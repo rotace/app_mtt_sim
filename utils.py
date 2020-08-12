@@ -6,6 +6,9 @@ from scipy.spatial.transform import Rotation
 
 import nlopt
 
+IGNORE_THRESH = -1000000
+
+
 def cart2polar(vec_cart):
     """ convert cartesian to polar
 

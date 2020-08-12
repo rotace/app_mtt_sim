@@ -8,7 +8,7 @@ import utils
 import models
 import sensors
 
-IGNORE_THRESH = -1000000
+
 
 
 class BaseTracker():
@@ -76,7 +76,7 @@ class BaseTracker():
         M = len(hyp.trk_list)
         N = len(obs_list)
         S = np.empty( (M + N, N) )
-        S.fill(IGNORE_THRESH)
+        S.fill(utils.IGNORE_THRESH)
         
         # set new or false target price
         S[range(M, M + N), range(N)] = [ 0 for obs in obs_list ]
@@ -88,7 +88,7 @@ class BaseTracker():
 
                 S[i, range(N)] = [
                     trk.calc_match_price(obs)
-                    if trk.is_in_gate(obs) else IGNORE_THRESH
+                    if trk.is_in_gate(obs) else utils.IGNORE_THRESH
                     for obs in obs_list
                 ]
         
@@ -180,7 +180,7 @@ class JPDA(BaseTracker):
         S = self._calc_price_matrix(self, obs_list)
 
         #---- calc association
-        assign_idx_hyp_list = utils.calc_n_best_assignments_by_murty(S, IGNORE_THRESH, 10)
+        assign_idx_hyp_list = utils.calc_n_best_assignments_by_murty(S, utils.IGNORE_THRESH, 10)
 
         hyp_assign_dict_list = list()
         all_assign_dict = {}
@@ -284,7 +284,7 @@ class MHT(BaseTracker):
             new_hyp_list += [
                 (prices, assign, hyp)
                 for prices, assign
-                in utils.calc_n_best_assignments_by_murty(S, IGNORE_THRESH, 10)
+                in utils.calc_n_best_assignments_by_murty(S, utils.IGNORE_THRESH, 10)
             ]
 
         new_hyp_sort = sorted( new_hyp_list, key=lambda x:x[0].sum() )[::-1]
@@ -371,7 +371,7 @@ class TrackerEvaluator():
         return (copy.deepcopy(self.tracker), copy.deepcopy(self.tgt_list))
 
     @staticmethod
-    def _calc_price_matrix(tgt_list, trk_list):
+    def calc_price_matrix(tgt_list, trk_list):
         """ calc price matrix between target and track
 
         ref) Design and Analysis of Modern Tracking Systems
@@ -381,7 +381,7 @@ class TrackerEvaluator():
         M = len(tgt_list)
         N = len(trk_list)
         S = np.empty( (M + N, N) )
-        S.fill(IGNORE_THRESH)
+        S.fill(utils.IGNORE_THRESH)
         
         # set extra track price
         S[range(M, M + N), range(N)] = [0.0]*N
@@ -390,10 +390,28 @@ class TrackerEvaluator():
         for i, tgt in enumerate(tgt_list):
             S[i, range(N)] = [
                 tgt.calc_match_price(trk.model)
-                if tgt.is_in_gate(trk.model) else IGNORE_THRESH
+                if tgt.is_in_gate(trk.model) else utils.IGNORE_THRESH
                 for trk in trk_list
             ]
         return S
+
+    @staticmethod
+    def calc_track_truth(tgt_list, trk_list):
+        # count targets
+        n_tgt = len(tgt_list)
+        
+        # calc MOF (Measure of Fit) and assignment
+        S = TrackerEvaluator.calc_price_matrix(tgt_list, trk_list)
+        _, assign = utils.calc_best_assignment_by_auction(S)
+
+        # create track to truth assignment table
+        trk_truth = [0]*(n_tgt+1)
+        for j_trk, i_tgt in enumerate(assign):
+            if i_tgt < n_tgt:
+                trk_truth[i_tgt] = trk_list[j_trk].get_id()
+            else:
+                trk_truth[n_tgt] += 1
+        return trk_truth
 
     def _update_sim_param(self, i_scan):
         # user can change sim parameter R, PD, PFA
@@ -402,9 +420,6 @@ class TrackerEvaluator():
     def _update(self, tracker, tgt_list, i_scan=None):
         # sensor characteristics
         self._update_sim_param(i_scan)
-
-        # count targets
-        n_tgt = len(tgt_list)
 
         # create obs_list
         obs_list = self.sensor.create_obs_list(tgt_list, R=self.R, PD=self.PD, PFA=self.PFA)
@@ -415,17 +430,8 @@ class TrackerEvaluator():
         # tgt_list update
         [ tgt.update(self.tracker._dT()) for tgt in tgt_list ]
 
-        # calc MOF (Measure of Fit) and assignment
-        S = self._calc_price_matrix(tgt_list, trk_list)
-        _, assign = utils.calc_best_assignment_by_auction(S)
-
-        # create track to truth assignment table
-        trk_truth = [0]*(n_tgt+1)
-        for j_trk, i_tgt in enumerate(assign):
-            if i_tgt < n_tgt:
-                trk_truth[i_tgt] = trk_list[j_trk].get_id()
-            else:
-                trk_truth[n_tgt] += 1
+        # calc track to truth matrix
+        trk_truth = self.calc_track_truth(tgt_list, trk_list)
 
         return (tracker, tgt_list, trk_list, obs_list, trk_truth)
     
