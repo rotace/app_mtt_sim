@@ -8,6 +8,7 @@
 import os
 import sys
 import cmath
+import sqlite3
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -81,7 +82,7 @@ def sample_MultiSensorGNN():
             return self.range_min < dist < self.range_max and abs(azim-self.angle) < self.width/2
 
         def is_tgt_in_range(self, tgt):
-            dist, azim = cmath.polar( (tgt[0]-self.x[0]) + 1j*(tgt[1]-self.x[1]) )
+            dist, azim = cmath.polar( (tgt.x[0]-self.x[0]) + 1j*(tgt.x[1]-self.x[1]) )
             return self.range_min < dist < self.range_max and abs(azim-self.angle) < self.width/2
 
     sen_list = [
@@ -109,6 +110,12 @@ def sample_MultiSensorGNN():
         )
     ]
 
+    tgt_list = [
+        models.SimpleTarget(SD=2, x0=[100., 00.,-1.,+0.3]),
+        models.SimpleTarget(SD=2, x0=[100., 10.,-1.,-0.1]),
+        models.SimpleTarget(SD=2, x0=[100., 20.,-1.,-0.2]),
+    ]
+
     tracker = trackers.GNN(
         sen_list=sen_list,
         model_factory=models.SingerModelFactory(
@@ -124,12 +131,6 @@ def sample_MultiSensorGNN():
         )
     )
 
-    tgt_list = [
-        np.array([100., 0.,-1.,+0.3]),
-        np.array([100.,10.,-1.,-0.1]),
-        np.array([100.,20.,-1.,-0.2])
-    ]
-
     obs_df = pd.DataFrame()
     tgt_df = pd.DataFrame()
     trk_df = pd.DataFrame()
@@ -142,29 +143,46 @@ def sample_MultiSensorGNN():
             # scan by sensor0 (once in 5 times)
             sensor = sen_list[0]
             R = np.eye(2) * 0.01
-            obs_list = [models.Obs(np.random.multivariate_normal(tgt[:2], R), R) for tgt in tgt_list if sensor.is_tgt_in_range(tgt)]
+            obs_list = [models.Obs(np.random.multivariate_normal(tgt.x[:2], R), R) for tgt in tgt_list if sensor.is_tgt_in_range(tgt)]
             trk_list = tracker.register_scan(obs_list, sensor=sensor)
         else:
             # scan by sensor1 (everytime except sensor0 turn)
             sensor = sen_list[1]
             R = np.eye(2) * 0.01
-            obs_list = [models.Obs(np.random.multivariate_normal(tgt[:2], R), R) for tgt in tgt_list if sensor.is_tgt_in_range(tgt)]
+            obs_list = [models.Obs(np.random.multivariate_normal(tgt.x[:2], R), R) for tgt in tgt_list if sensor.is_tgt_in_range(tgt)]
             trk_list = tracker.register_scan(obs_list, sensor=sensor)
 
-        for tgt in tgt_list:
-            tgt[:2] += tgt[2:]*scan_time
+        # tgt_list update
+        [ tgt.update(tracker._dT()) for tgt in tgt_list ]
 
         # save as dataframe
-        obs_df = obs_df.append( [ obs.to_series(timestamp, i_scan) for obs in obs_list ] )
-        trk_df = trk_df.append( [ trk.to_series(timestamp, i_scan) for trk in trk_list ] )
-        tgt_df = tgt_df.append( [ pd.Series([i_scan, tgt[0], tgt[1]], index=["SCAN_ID", "ARRAY0", "ARRAY1"], name=timestamp) for tgt in tgt_list] )
-        sen_df = sen_df.append( [ sen.to_series(timestamp, i_scan) for sen in sen_list ] )
+        obs_df = obs_df.append( [ obs.to_series(timestamp, i_scan) for obs in obs_list ], ignore_index=True )
+        trk_df = trk_df.append( [ trk.to_series(timestamp, i_scan) for trk in trk_list ], ignore_index=True )
+        tgt_df = tgt_df.append( [ tgt.to_series(timestamp, i_scan) for tgt in tgt_list ], ignore_index=True)
+        sen_df = sen_df.append( [ sen.to_series(timestamp, i_scan) for sen in sen_list ], ignore_index=True )
+
+    # add model info
+    obs_df = models.ModelType.add_mdl_info(obs_df, tracker.y_mdl_type())
+    trk_df = models.ModelType.add_mdl_info(trk_df, tracker.x_mdl_type())
 
     # export dataframe as csv
-    models.ModelType.add_mdl_info(obs_df, tracker.y_mdl_type()).to_csv("obs.csv")
-    models.ModelType.add_mdl_info(trk_df, tracker.x_mdl_type()).to_csv("trk.csv")
-    models.ModelType.add_mdl_info(tgt_df, tracker.y_mdl_type()).to_csv("tgt.csv")
+    obs_df.to_csv("obs.csv")
+    trk_df.to_csv("trk.csv")
+    tgt_df.to_csv("tgt.csv")
     sen_df.to_csv("sen.csv")
+
+    # export dataframe as db
+    filename="./data.db"
+    try:
+        os.remove(filename)
+    except OSError:
+        pass
+    conn = sqlite3.connect(filename)
+    obs_df.to_sql("obs", conn, if_exists="append", index=None)
+    trk_df.to_sql("trk", conn, if_exists="append", index=None)
+    tgt_df.to_sql("tgt", conn, if_exists="append", index=None)
+    sen_df.to_sql("sen", conn, if_exists="append", index=None)
+    conn.close()
 
     # view
     viewers.main()

@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from scipy.linalg import block_diag
 
-import sensors
 import utils
 
 class CoordType(enum.Enum):
@@ -177,7 +176,17 @@ class ModelType:
         return (dx, ModelType(type_a.crd_type, x_common_type, SD=None, RD=None))
 
 
-class Obs():
+class BaseExporter():
+    """ Base Export Class """
+    
+    def to_series(self, timestamp, scan_id):
+        assert isinstance(timestamp, pd.Timestamp), "timestamp is invalid, actual:"+str(timestamp)
+        value=[timestamp, scan_id]
+        label=["TIMESTAMP", "SCAN_ID"]
+        return pd.Series(value, index=label) 
+
+
+class Obs(BaseExporter):
     """ Observation """
     obs_id_counter = 0
     @classmethod
@@ -195,7 +204,6 @@ class Obs():
         """
         assert isinstance(y, np.ndarray) or isinstance(y, float) ,type(y)
         assert isinstance(R, np.ndarray) or isinstance(R, float), type(R)
-        assert isinstance(sensor, sensors.BaseSensor) or sensor is None, type(sensor)
         self.y = y
         self.R = R
         self.sensor = sensor
@@ -205,11 +213,11 @@ class Obs():
         return self.obs_id
 
     def to_series(self, timestamp, scan_id):
-        assert isinstance(timestamp, pd.Timestamp), "timestamp is invalid, actual:"+str(timestamp)
+        series = super().to_series(timestamp, scan_id)
         y_lbl = [ "ARRAY"+str(v) for v in range(len(self.y)) ]            
-        value=[scan_id, self.get_id()]+list(self.y) 
-        label=["SCAN_ID", "OBS_ID"]+y_lbl
-        return pd.Series(value, index=label, name=timestamp)
+        value=[self.get_id(), self.sensor.get_id()]+list(self.y)
+        label=["OBS_ID", "SEN_ID"]+ y_lbl
+        return series.append( pd.Series(value, index=label) )
 
 
 class KalmanModel():
@@ -603,8 +611,13 @@ class SingerModelFactory(ModelFactory):
         return self.model(x, F, H, P, Q, is_nonlinear=False, x_type=self._x_type, y_type=self._y_type)
 
 
-class Target():
-    """ Base Target """
+class BaseTarget(BaseExporter):
+    """ BaseTarget """
+    tgt_id_counter = 0
+    @classmethod
+    def _generate_id(cls):
+        cls.tgt_id_counter+=1
+        return cls.tgt_id_counter
 
     def __init__(self, SD=2, RD=3, x0=np.array([0., 0.]), start_time=0, end_time=np.inf):
         assert 1 <= SD <= 3
@@ -622,12 +635,18 @@ class Target():
         self.start_time = start_time
         self.end_time = end_time
 
+        self.tgt_id = BaseTarget._generate_id()
+
+    def get_id(self):
+        return self.tgt_id
+
     def to_series(self, timestamp, scan_id):
-        assert isinstance(timestamp, pd.Timestamp), "timestamp is invalid, actual:"+str(timestamp)
-        x_lbl = [ "ARRAY"+str(v) for v in range(len(self.x)) ]            
-        value=[scan_id]+list(self.x) 
-        label=["SCAN_ID"]+x_lbl
-        return pd.Series(value, index=label, name=timestamp)
+        series = super().to_series(timestamp, scan_id)
+        x_lbl = [ v.name for v in self._x_type.val_type ]
+        value=[self.get_id()]+list(self.x) 
+        label=["TGT_ID"]+x_lbl
+        return series.append( pd.Series(value, index=label) )
+
 
     def update_x(self, T, dT):
         raise NotImplementedError
@@ -650,7 +669,7 @@ class Target():
         return self.calc_match_price(model) > 0
     
 
-class SimpleTarget(Target):
+class SimpleTarget(BaseTarget):
     """ Simple Target Maneuver Model (1D~3D, posit/veloc/accel)
 
         default:
@@ -681,7 +700,7 @@ class SimpleTarget(Target):
 
 
 
-class SingerTarget(Target):
+class SingerTarget(BaseTarget):
     """ Singer Target Maneuver Model (1D, posit/veloc/accel)
     
     ref) Design and Analysis of Modern Tracking Systems

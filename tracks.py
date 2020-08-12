@@ -34,7 +34,7 @@ class BaseTrackFactory():
 
 
 
-class BaseTrack():
+class BaseTrack(models.BaseExporter):
     """ Base Track
 
         ref) Design and Analysis of Modern Tracking Systems
@@ -74,13 +74,13 @@ class BaseTrack():
         return self.trk_id
         
     def to_series(self, timestamp, scan_id):
-        assert isinstance(timestamp, pd.Timestamp), "timestamp is invalid, actual:"+str(timestamp)
+        series = super().to_series(timestamp, scan_id)
         x_lbl = [ "ARRAY"+str(v) for v in range(len(self.model.x)) ]
         trk_id = self.get_id()
         obs_id = self.obs_list[-1].get_id() if self.obs_list[-1] else None
-        value=[scan_id, trk_id, obs_id]+list(self.model.x) 
-        label=["SCAN_ID", "TRK_ID", "OBS_ID"]+x_lbl
-        return pd.Series(value, index=label, name=timestamp)
+        value=[trk_id, obs_id]+list(self.model.x) 
+        label=["TRK_ID", "OBS_ID"]+x_lbl
+        return series.append( pd.Series(value, index=label) )
 
     def assign(self, obs):
         # set data

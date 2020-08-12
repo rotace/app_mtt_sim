@@ -6,7 +6,7 @@ from scipy import stats
 import models
 
 
-class BaseSensor():
+class BaseSensor(models.BaseExporter):
     """ Sensor Base Class
 
     ref) Design and Analysis of Modern Tracking Systems
@@ -32,6 +32,12 @@ class BaseSensor():
 
     def get_id(self):
         return self.sen_id
+
+    def to_series(self, timestamp, scan_id):
+        series = super().to_series(timestamp, scan_id)
+        value=[self.get_id()]
+        label=["SEN_ID"]
+        return series.append( pd.Series(value, index=label) )
 
     def update(self, dT, *args, **kwargs):
         self.count += 1
@@ -131,25 +137,30 @@ class Polar2DSensor(BaseSensor):
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        SD=2
+        RD=2
+        XD=SD*RD
+        x0 = kwargs["x0"]
+        self.x = np.zeros(XD)
+        self.x[:len(x0)] = x0
+        self.angle = kwargs["angle0"]
+        self.width = kwargs["DETECT_WIDTH"]
+        self.range_max = kwargs["DETECT_RANGE_MAX"]
+        self.range_min = kwargs["DETECT_RANGE_MIN"]
         self.mdl_type = models.ModelType.generate_model_type(
             crd_type=models.CoordType.CART,
             SD=2,
             RD=2
         )
-        self.x = kwargs["x0"]
-        self.angle = kwargs["angle0"]
-        self.width = kwargs["DETECT_WIDTH"]
-        self.range_max = kwargs["DETECT_RANGE_MAX"]
-        self.range_min = kwargs["DETECT_RANGE_MIN"]
 
     def to_series(self, timestamp, scan_id):
-        assert isinstance(timestamp, pd.Timestamp), "timestamp is invalid, actual:"+str(timestamp)
+        series = super().to_series(timestamp, scan_id)
         x_lbl = [ v.name for v in self.mdl_type.val_type ]
-        value=[scan_id, self.get_id(), Polar2DSensor.__name__]
-        label=["SCAN_ID", "SEN_ID", "SEN_TYPE"]
+        value=[Polar2DSensor.__name__]
+        label=["SEN_TYPE"]
         value+= list(self.x)+[self.angle-self.width/2, self.angle+self.width/2, self.range_min, self.range_max] 
         label+= x_lbl+["THETA_MIN", "THETA_MAX", "RANGE_MIN", "RANGE_MAX"]
-        return pd.Series(value, index=label, name=timestamp)
+        return series.append( pd.Series(value, index=label) )
 
     def update(self, dT, *args, **kwargs):
         super().update(dT, *args, **kwargs)

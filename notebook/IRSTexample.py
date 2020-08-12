@@ -100,7 +100,7 @@ class TrackerEvaluatorForP372(trackers.TrackerEvaluator):
             self.PD = self.PD_after_10
             self.PFA = self.PFA_after_10
 
-class SinusoidTarget(models.Target):
+class SinusoidTarget(models.BaseTarget):
     def __init__(self, A, Tp):
         super().__init__()
         self.A = A
