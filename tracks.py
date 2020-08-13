@@ -72,8 +72,8 @@ class BaseTrack(models.BaseExporter):
     def get_id(self):
         return self.trk_id
         
-    def to_series(self, timestamp, scan_id):
-        series = super().to_series(timestamp, scan_id)
+    def to_record(self, timestamp, scan_id):
+        series = super().to_record(timestamp, scan_id)
         # integer
         trk_id = self.get_id()
         obs_id = self.obs_list[-1].get_id() if self.obs_list[-1] else -1
@@ -92,7 +92,7 @@ class BaseTrack(models.BaseExporter):
         return series.append( pd.Series(x_val+P_val, index=x_lbl+P_lbl, dtype=float) )
 
     @staticmethod
-    def from_series(series):
+    def from_record(series):
         assert isinstance(series, pd.Series), "series is invalid, actual:"  + str(type(series))
         cov_type_str = [ cv for cv in series.index.values if cv[0] == "P" ]
         val_type_str = list(set(series.index.values) &  {vt.name for vt in models.ValueType})

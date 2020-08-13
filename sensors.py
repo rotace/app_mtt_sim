@@ -33,8 +33,8 @@ class BaseSensor(models.BaseExporter):
     def get_id(self):
         return self.sen_id
 
-    def to_series(self, timestamp, scan_id):
-        series = super().to_series(timestamp, scan_id)
+    def to_record(self, timestamp, scan_id):
+        series = super().to_record(timestamp, scan_id)
         value=[self.get_id()]
         label=["SEN_ID"]
         return series.append( pd.Series(value, index=label) )
@@ -153,8 +153,8 @@ class Polar2DSensor(BaseSensor):
             RD=2
         )
 
-    def to_series(self, timestamp, scan_id):
-        series = super().to_series(timestamp, scan_id)
+    def to_record(self, timestamp, scan_id):
+        series = super().to_record(timestamp, scan_id)
         x_lbl = [ v.name for v in self.mdl_type.val_type ]
         # string
         value=[Polar2DSensor.__name__]

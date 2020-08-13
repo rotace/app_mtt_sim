@@ -156,32 +156,15 @@ def sample_MultiSensorGNN():
         [ tgt.update(tracker._dT()) for tgt in tgt_list ]
 
         # save as dataframe
-        obs_df = obs_df.append( [ obs.to_series(timestamp, i_scan) for obs in obs_list ], ignore_index=True )
-        trk_df = trk_df.append( [ trk.to_series(timestamp, i_scan) for trk in trk_list ], ignore_index=True )
-        tgt_df = tgt_df.append( [ tgt.to_series(timestamp, i_scan) for tgt in tgt_list ], ignore_index=True)
-        sen_df = sen_df.append( [ sen.to_series(timestamp, i_scan) for sen in sen_list ], ignore_index=True )
+        obs_df = obs_df.append( [ obs.to_record(timestamp, i_scan) for obs in obs_list ], ignore_index=True )
+        trk_df = trk_df.append( [ trk.to_record(timestamp, i_scan) for trk in trk_list ], ignore_index=True )
+        tgt_df = tgt_df.append( [ tgt.to_record(timestamp, i_scan) for tgt in tgt_list ], ignore_index=True)
+        sen_df = sen_df.append( [ sen.to_record(timestamp, i_scan) for sen in sen_list ], ignore_index=True )
 
-    # add model info
-    obs_df = models.ModelType.add_mdl_info(obs_df, tracker.y_mdl_type())
-
-    # export dataframe as csv
-    obs_df.to_csv("obs.csv")
-    trk_df.to_csv("trk.csv")
-    tgt_df.to_csv("tgt.csv")
-    sen_df.to_csv("sen.csv")
-
-    # export dataframe as db
-    filename="./data.db"
-    try:
-        os.remove(filename)
-    except OSError:
-        pass
-    conn = sqlite3.connect(filename)
-    obs_df.to_sql("obs", conn, if_exists="append", index=None)
-    trk_df.to_sql("trk", conn, if_exists="append", index=None)
-    tgt_df.to_sql("tgt", conn, if_exists="append", index=None)
-    sen_df.to_sql("sen", conn, if_exists="append", index=None)
-    conn.close()
+    # export
+    anal = analyzers.BaseAnalyzer(tracker, obs_df, trk_df, sen_df, tgt_df)
+    anal.export_csv()
+    anal.export_db()
 
     # analyse
     analyzers.main()

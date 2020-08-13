@@ -194,7 +194,7 @@ class ModelType:
 class BaseExporter():
     """ Base Export Class """
 
-    def to_series(self, timestamp, scan_id):
+    def to_record(self, timestamp, scan_id):
         assert isinstance(timestamp, pd.Timestamp), "timestamp is invalid, actual:"+str(timestamp)
         value=[timestamp, scan_id]
         label=["TIMESTAMP", "SCAN_ID"]
@@ -227,8 +227,8 @@ class Obs(BaseExporter):
     def get_id(self):
         return self.obs_id
 
-    def to_series(self, timestamp, scan_id):
-        series = super().to_series(timestamp, scan_id)
+    def to_record(self, timestamp, scan_id):
+        series = super().to_record(timestamp, scan_id)
         # integer
         value=[self.get_id(), self.sensor.get_id()]
         label=["OBS_ID", "SEN_ID"]
@@ -661,8 +661,8 @@ class BaseTarget(BaseExporter):
     def get_id(self):
         return self.tgt_id
 
-    def to_series(self, timestamp, scan_id):
-        series = super().to_series(timestamp, scan_id)
+    def to_record(self, timestamp, scan_id):
+        series = super().to_record(timestamp, scan_id)
         # integer
         value=[self.get_id()]
         label=["TGT_ID"]
@@ -676,7 +676,7 @@ class BaseTarget(BaseExporter):
         return series.append( pd.Series(list(self.x), index=x_lbl, dtype=float) )
 
     @staticmethod
-    def from_series(series):
+    def from_record(series):
         assert isinstance(series, pd.Series), "series is invalid, actual:" + str(type(series))
         val_type_str = list(set(series.index.values) &  {vt.name for vt in ValueType})
         val_type = [ vt  for vt_str in val_type_str for vt in ValueType if vt_str == vt.name ]
