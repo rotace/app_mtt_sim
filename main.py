@@ -162,7 +162,7 @@ def sample_MultiSensorGNN():
         sen_df = sen_df.append( [ sen.to_record(timestamp, i_scan) for sen in sen_list ], ignore_index=True )
 
     # export
-    anal = analyzers.BaseAnalyzer(tracker, obs_df, trk_df, sen_df, tgt_df)
+    anal = analyzers.BaseAnalyzer.import_df(tracker, obs_df, trk_df, sen_df, tgt_df)
     anal.export_csv()
     anal.export_db()
 

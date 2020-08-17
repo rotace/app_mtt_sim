@@ -30,13 +30,16 @@ class BaseSensor(models.BaseExporter):
         self.count = 0
         self.sen_id = BaseSensor._generate_id()
 
+    def __str__(self):
+        return self.__class__.__name__
+
     def get_id(self):
         return self.sen_id
 
     def to_record(self, timestamp, scan_id):
         series = super().to_record(timestamp, scan_id)
-        value=[self.get_id()]
-        label=["SEN_ID"]
+        value=[self.get_id(), str(self)]
+        label=["SEN_ID", "SEN_NAME"]
         return series.append( pd.Series(value, index=label) )
 
     def update(self, dT, *args, **kwargs):

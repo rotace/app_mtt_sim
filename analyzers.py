@@ -20,114 +20,156 @@ sen_df = None
 
 
 class BaseAnalyzer():
-
-    @staticmethod
-    def create_useful_views(db):
-        # track to observation combination view
-        query="""
-            CREATE VIEW trk_obs_comb AS
-            SELECT  trk.SCAN_ID,
-                            trk.TRK_ID,
-                            trk.OBS_ID,
-                            obs.POSIT_X AS OBS_POSIT_X,
-                            obs.POSIT_Y AS OBS_POSIT_Y
-            FROM trk
-            INNER JOIN  obs on trk.OBS_ID == obs.OBS_ID AND
-                                    trk.SCAN_ID == obs.SCAN_ID
-        """
-        db.execute(query)
-
-    def __init__(self, tracker=None, obs_df=None, trk_df=None, sen_df=None, tgt_df=None):
+    
+    @classmethod
+    def import_df(cls, tracker, obs_df=None, trk_df=None, sen_df=None, tgt_df=None):
         # add model info
         if tracker:
             obs_df = models.ModelType.add_mdl_info(obs_df, tracker.y_mdl_type())
+        return cls(obs_df, trk_df, sen_df, tgt_df)
+
+    @classmethod
+    def import_csv(cls, filename="data"):
+        obs_df = pd.read_csv(filename+"_obs.csv", index_col=0, parse_dates=True)
+        trk_df = pd.read_csv(filename+"_trk.csv", index_col=0, parse_dates=True)
+        tgt_df = pd.read_csv(filename+"_tgt.csv", index_col=0, parse_dates=True)
+        sen_df = pd.read_csv(filename+"_sen.csv", index_col=0, parse_dates=True)
+        return cls(obs_df, trk_df, sen_df, tgt_df)
+    
+    @classmethod
+    def import_db(cls, filename="data"):
+        filename+=".db"
+        db = sqlite3.connect(filename)
+        obs_df = pd.read_sql_query("SELECT * FROM obs", db)
+        trk_df = pd.read_sql_query("SELECT * FROM trk", db)
+        tgt_df = pd.read_sql_query("SELECT * FROM tgt", db)
+        sen_df = pd.read_sql_query("SELECT * FROM sen", db)
+        db.close()
+        return cls(obs_df, trk_df, sen_df, tgt_df)
+
+    def __init__(self, obs_df, trk_df, sen_df, tgt_df):
         self.obs_df=obs_df
         self.trk_df=trk_df
         self.sen_df=sen_df
         self.tgt_df=tgt_df
 
-    def import_csv(self):
-        self.obs_df = pd.read_csv("obs.csv", index_col=0, parse_dates=True)
-        self.trk_df = pd.read_csv("trk.csv", index_col=0, parse_dates=True)
-        self.tgt_df = pd.read_csv("tgt.csv", index_col=0, parse_dates=True)
-        self.sen_df = pd.read_csv("sen.csv", index_col=0, parse_dates=True)
-
-    def export_csv(self):
-        # export dataframe as csv
-        self.obs_df.to_csv("obs.csv")
-        self.trk_df.to_csv("trk.csv")
-        self.sen_df.to_csv("sen.csv")
-        self.tgt_df.to_csv("tgt.csv")
-
-    def import_db(self):
-        raise NotImplementedError
-
-    def export_db(self):
-        # export dataframe as db
-        filename="./data.db"
+    @staticmethod
+    def _remove(filename):
         try:
             os.remove(filename)
         except OSError:
             pass
-        db = sqlite3.connect(filename)
+
+    def _write_df_on_db(self, db):
         self.obs_df.to_sql("obs", db, if_exists="append", index=None)
         self.trk_df.to_sql("trk", db, if_exists="append", index=None)
         self.tgt_df.to_sql("tgt", db, if_exists="append", index=None)
         self.sen_df.to_sql("sen", db, if_exists="append", index=None)
-        self.create_useful_views(db)
+
+    def export_csv(self, filename="data"):
+        self.obs_df.to_csv(filename+"_obs.csv")
+        self.trk_df.to_csv(filename+"_trk.csv")
+        self.sen_df.to_csv(filename+"_sen.csv")
+        self.tgt_df.to_csv(filename+"_tgt.csv")
+
+    def export_db(self, filename="data"):
+        filename+=".db"
+        self._remove(filename)
+        db = sqlite3.connect(filename)
+        self._write_df_on_db(db)
         db.close()
 
     def statistics(self):
-        # obs_list_df = pd.read_csv("obs.csv", index_col=0, parse_dates=True)
-        trk_df = pd.read_csv("trk.csv", index_col=0, parse_dates=True)
-        tgt_df = pd.read_csv("tgt.csv", index_col=0, parse_dates=True)
-        # sen_list_df = pd.read_csv("sen.csv", index_col=0, parse_dates=True)
-
-        scan_id_max = max( [ trk_df.SCAN_ID.max(), tgt_df.SCAN_ID.max() ] ) 
-        scan_id_min = min( [ trk_df.SCAN_ID.min(), tgt_df.SCAN_ID.min() ] ) 
+        scan_id_max = max( [ self.trk_df.SCAN_ID.max(), self.tgt_df.SCAN_ID.max() ] ) 
+        scan_id_min = min( [ self.trk_df.SCAN_ID.min(), self.tgt_df.SCAN_ID.min() ] ) 
 
         trk_truth_df = pd.DataFrame()
 
         for i_scan in range(int(scan_id_min), int(scan_id_max)):
-            tgt_list = [ models.BaseTarget.from_record(tgt_sr) for _, tgt_sr in tgt_df[tgt_df.SCAN_ID==i_scan].iterrows() ]
-            trk_list = [ tracks.BaseTrack.from_record(trk_sr) for _, trk_sr in  trk_df[trk_df.SCAN_ID==i_scan].iterrows() ]
+            tgt_list = [ models.BaseTarget.from_record(tgt_sr) for _, tgt_sr in self.tgt_df[self.tgt_df.SCAN_ID==i_scan].iterrows() ]
+            trk_list = [ tracks.BaseTrack.from_record(trk_sr) for _, trk_sr in  self.trk_df[self.trk_df.SCAN_ID==i_scan].iterrows() ]
             trk_truth = trackers.TrackerEvaluator.calc_track_truth(tgt_list, trk_list)
             print(trk_truth)
 
+    def plot2D(self, filename="data", formats=["plt"]):
+        if "db" in formats:
+            self._remove(filename)
+            db = sqlite3.connect(filename+".db")
+        else:
+            db = sqlite3.connect(":memory:")
 
-    def plot2D(self):
-        mer_df = pd.merge(left=self.trk_df, right=self.obs_df, how="left", on="OBS_ID", suffixes=["_TRK", "_OBS"])
+        self._write_df_on_db(db)
 
-        plt.axis("equal")
-        plt.grid()
+        query="""
+            CREATE VIEW plot2d_trk_obs AS
+            SELECT
+                trk.SCAN_ID,
+                trk.TRK_ID,
+                trk.OBS_ID,
+                obs.POSIT_X AS OBS_POSIT_X,
+                obs.POSIT_Y AS OBS_POSIT_Y
+            FROM trk
+            INNER JOIN obs 
+            ON
+                trk.OBS_ID == obs.OBS_ID AND
+                trk.SCAN_ID == obs.SCAN_ID
+            ORDER BY
+                trk.TRK_ID  ASC,
+                trk.SCAN_ID ASC
+        """
+        db.execute(query)
+        trk_obs_df = pd.read_sql_query("SELECT * FROM plot2d_trk_obs", db)
 
-        for sen_id in self.obs_df["SEN_ID"].unique():
-
-            obs_data = self.obs_df[self.obs_df.SEN_ID==sen_id]
+        for trk_id in trk_obs_df.TRK_ID.unique():
+            trk_data = trk_obs_df[trk_obs_df.TRK_ID == trk_id]
             plt.plot(
-                obs_data.POSIT_X.values,
-                obs_data.POSIT_Y.values,
+                trk_data.OBS_POSIT_X.values,
+                trk_data.OBS_POSIT_Y.values,
+                marker="None", color="r", alpha=1.0, linestyle="solid", label="trk"
+            )
+            plt.annotate(
+                str(int(trk_id)),
+                xy=(trk_data.tail(1).OBS_POSIT_X, trk_data.tail(1).OBS_POSIT_Y)
+            )
+
+        query="""
+            CREATE VIEW plot2d_sen_obs AS
+            SELECT
+                obs.SCAN_ID,
+                obs.SEN_ID,
+                obs.OBS_ID,
+                obs.POSIT_X AS OBS_POSIT_X,
+                obs.POSIT_Y AS OBS_POSIT_Y
+            FROM obs
+            ORDER BY
+                obs.SEN_ID  ASC,
+                obs.SCAN_ID ASC
+        """
+        db.execute(query)
+        sen_obs_df = pd.read_sql_query("SELECT * FROM plot2d_sen_obs", db)
+
+        for sen_id in sen_obs_df.SEN_ID.unique():
+            obs_data = sen_obs_df[sen_obs_df.SEN_ID==sen_id]
+            plt.plot(
+                obs_data.OBS_POSIT_X.values,
+                obs_data.OBS_POSIT_Y.values,
                 marker="D", alpha=.5, linestyle="None", label="obs"
             )
 
-        for trk_id in mer_df["TRK_ID"].unique():
-
-            trk_data = mer_df[mer_df.TRK_ID == trk_id].sort_values("SCAN_ID_TRK")
-            trk_data = trk_data[trk_data.OBS_ID!=-1]
+        if "csv" in formats:
+            trk_obs_df.to_csv(filename+"_plot2d_trk_obs.csv")
+            sen_obs_df.to_csv(filename+"_plot2d_sen_obs.csv")
             
-            plt.plot(
-                trk_data.POSIT_X_OBS.values, trk_data.POSIT_Y_OBS.values,
-                marker="None", color="r", alpha=1.0, linestyle="solid", label="trk"
-            )
+        plt.axis("equal")
+        plt.grid()
+        db.close()
 
-            plt.annotate(
-                str(int(trk_id)),
-                xy=(trk_data.tail(1).POSIT_X_OBS, trk_data.tail(1).POSIT_Y_OBS)
-            )
+        if "png" in formats:
+            plt.savefig(filename+".png")
+        if "plt" in formats:
+            plt.show()
 
-        plt.show()
-
-    def animation(self):
+    def animation(self, interval=200):
         scan_id_max = max( [self.obs_df.SCAN_ID.max(), self.trk_df.SCAN_ID.max(), self.tgt_df.SCAN_ID.max() ] ) 
         scan_id_min = min( [self.obs_df.SCAN_ID.min(), self.trk_df.SCAN_ID.min(), self.tgt_df.SCAN_ID.min() ] ) 
 
@@ -188,15 +230,14 @@ class BaseAnalyzer():
 
             art_list.append( obs_art + trk_art + tgt_art + sen_art + pat_art + [count] )
 
-        _ = ani.ArtistAnimation(fig, art_list, interval=200)
+        _ = ani.ArtistAnimation(fig, art_list, interval=interval)
         plt.show()
 
 
 def main(): 
-    anal = BaseAnalyzer()
-    anal.import_csv()
+    anal = BaseAnalyzer.import_db()
     anal.animation()
-    # anal.plot2D()
+    # anal.plot2D(filename="test", formats=["plt", "png", "db", "csv"])
     # anal.statistics()
 
 """ Execute Section """

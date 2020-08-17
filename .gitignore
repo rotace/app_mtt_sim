@@ -107,3 +107,9 @@ venv.bak/
 octave-workspace
 *.csv
 *.db
+*.ppt*
+*.xls*
+*.doc*
+*.png
+*.jpg
+*.bmp

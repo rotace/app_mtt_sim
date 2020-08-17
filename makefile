@@ -14,4 +14,5 @@ test:
 	python3 -m unittest
 
 clean:
-	rm -rf *.csv *.db octave-workspace
+	rm -rf octave-workspace
+	rm -rf *.csv *.db *.png
