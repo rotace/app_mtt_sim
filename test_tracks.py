@@ -57,7 +57,7 @@ class TestTracks(unittest.TestCase):
                 ))
 
             if 100 < k:
-                trk.unassign()
+                trk.unassign(tracker.sensor)
 
 
             # judge_deletion test
@@ -130,10 +130,10 @@ class TestTracks(unittest.TestCase):
                 if np.random.choice([True, False], p=[PD, 1-PD]):
                     trk.assign(obs)
                 else:
-                    trk.unassign()
+                    trk.unassign(tracker.sensor)
 
             if 100 < k:
-                trk.unassign()
+                trk.unassign(tracker.sensor)
 
             com_list.append(trk.judge_confirmation())
             del_list.append(trk.judge_deletion())

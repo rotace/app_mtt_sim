@@ -51,6 +51,10 @@ class BaseTrack(models.BaseExporter):
         cls.trk_id_counter+=1
         return cls.trk_id_counter
 
+    @classmethod
+    def initialize(cls):
+        cls.trk_id_counter = 0
+
     def __init__(self, obs, model, **kwargs):
         # set param
         if "gate" not in kwargs:
@@ -67,18 +71,18 @@ class BaseTrack(models.BaseExporter):
         self.cnt_list = [self.param["timestamp"]]
         self.model = model
         self.mdl_list = [copy.deepcopy(self.model)]
-        self.trk_id = BaseTrack._generate_id()
+        self.trk_id = self._generate_id()
     
     def get_id(self):
         return self.trk_id
         
     def to_record(self, timestamp, scan_id):
         series = super().to_record(timestamp, scan_id)
-        # integer
+        # id, score
         trk_id = self.get_id()
         obs_id = self.obs_list[-1].get_id() if self.obs_list[-1] else -1
-        value=[trk_id, obs_id] 
-        label=["TRK_ID", "OBS_ID"]
+        value=[trk_id, obs_id, self.scr_list[-1]] 
+        label=["TRK_ID", "OBS_ID", "SCORE"]
         series = series.append( pd.Series(value, index=label) )
         # string
         value=[self.model._x_type.crd_type.name]
@@ -130,12 +134,12 @@ class BaseTrack(models.BaseExporter):
         # update model
         self.model.update(obs)
 
-    def unassign(self, sensor=sensors.BaseSensor()):
+    def unassign(self, sensor):
         # set data
         self.obs_list.append(None)
         self.mdl_list.append(copy.deepcopy(self.model))
         self.cnt_list.append(self.cnt_list[-1]+1)
-        if not sensor or not sensor.is_trk_in_range(self):
+        if sensor is None or not sensor.is_trk_in_range(self):
             self.scr_list.append(self._calc_not_in_range_score())
         else:
             self.scr_list.append(self._calc_miss_score())

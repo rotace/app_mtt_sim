@@ -6,9 +6,15 @@ import matplotlib.animation as ani
 
 import utils
 import models
+import tracks
 import sensors
 
 
+def initialize():
+    models.Obs.initialize()
+    tracks.BaseTrack.initialize()
+    models.BaseTarget.initialize()
+    sensors.BaseSensor.initialize()
 
 
 class BaseTracker():

@@ -1,6 +1,7 @@
 import os
 import sys
 import cmath
+import pathlib
 import sqlite3
 import numpy as np
 import pandas as pd
@@ -29,17 +30,18 @@ class BaseAnalyzer():
         return cls(obs_df, trk_df, sen_df, tgt_df)
 
     @classmethod
-    def import_csv(cls, filename="data"):
-        obs_df = pd.read_csv(filename+"_obs.csv", index_col=0, parse_dates=True)
-        trk_df = pd.read_csv(filename+"_trk.csv", index_col=0, parse_dates=True)
-        tgt_df = pd.read_csv(filename+"_tgt.csv", index_col=0, parse_dates=True)
-        sen_df = pd.read_csv(filename+"_sen.csv", index_col=0, parse_dates=True)
+    def import_csv(cls, fpath="data.xxx"):
+        p=pathlib.Path(fpath)
+        obs_df = pd.read_csv(str(p.with_name(p.stem+"_obs.csv")), index_col=0, parse_dates=True)
+        trk_df = pd.read_csv(str(p.with_name(p.stem+"_trk.csv")), index_col=0, parse_dates=True)
+        tgt_df = pd.read_csv(str(p.with_name(p.stem+"_tgt.csv")), index_col=0, parse_dates=True)
+        sen_df = pd.read_csv(str(p.with_name(p.stem+"_sen.csv")), index_col=0, parse_dates=True)
         return cls(obs_df, trk_df, sen_df, tgt_df)
     
     @classmethod
-    def import_db(cls, filename="data"):
-        filename+=".db"
-        db = sqlite3.connect(filename)
+    def import_db(cls, fpath="data.xxx"):
+        p=pathlib.Path(fpath)
+        db = sqlite3.connect(str(p.with_suffix(".db")))
         obs_df = pd.read_sql_query("SELECT * FROM obs", db)
         trk_df = pd.read_sql_query("SELECT * FROM trk", db)
         tgt_df = pd.read_sql_query("SELECT * FROM tgt", db)
@@ -54,9 +56,9 @@ class BaseAnalyzer():
         self.tgt_df=tgt_df
 
     @staticmethod
-    def _remove(filename):
+    def _remove(fpath):
         try:
-            os.remove(filename)
+            os.remove(fpath)
         except OSError:
             pass
 
@@ -66,16 +68,17 @@ class BaseAnalyzer():
         self.tgt_df.to_sql("tgt", db, if_exists="append", index=None)
         self.sen_df.to_sql("sen", db, if_exists="append", index=None)
 
-    def export_csv(self, filename="data"):
-        self.obs_df.to_csv(filename+"_obs.csv")
-        self.trk_df.to_csv(filename+"_trk.csv")
-        self.sen_df.to_csv(filename+"_sen.csv")
-        self.tgt_df.to_csv(filename+"_tgt.csv")
+    def export_csv(self, fpath="data.xxx"):
+        p=pathlib.Path(fpath)
+        self.obs_df.to_csv(str(p.with_name(p.stem+"_obs.csv")))
+        self.trk_df.to_csv(str(p.with_name(p.stem+"_trk.csv")))
+        self.sen_df.to_csv(str(p.with_name(p.stem+"_sen.csv")))
+        self.tgt_df.to_csv(str(p.with_name(p.stem+"_tgt.csv")))
 
-    def export_db(self, filename="data"):
-        filename+=".db"
-        self._remove(filename)
-        db = sqlite3.connect(filename)
+    def export_db(self, fpath="data.xxx"):
+        p=pathlib.Path(fpath)
+        self._remove(str(p.with_suffix(".db")))
+        db = sqlite3.connect(str(p.with_suffix(".db")))
         self._write_df_on_db(db)
         db.close()
 
@@ -91,14 +94,62 @@ class BaseAnalyzer():
             trk_truth = trackers.TrackerEvaluator.calc_track_truth(tgt_list, trk_list)
             print(trk_truth)
 
-    def plot2D(self, filename="data", formats=["plt"]):
+    def _pre_plot(self, fpath, formats):
+        p=pathlib.Path(fpath)
         if "db" in formats:
-            self._remove(filename)
-            db = sqlite3.connect(filename+".db")
+            self._remove(str(p.with_suffix(".db")))
+            db = sqlite3.connect(str(p.with_suffix(".db")))
         else:
             db = sqlite3.connect(":memory:")
 
         self._write_df_on_db(db)
+        return db
+
+    def _post_plot(self, fpath, formats):
+        p=pathlib.Path(fpath)
+        plt.grid()
+        if "png" in formats:
+            plt.savefig(str(p.with_name(p.stem+".png")))
+        if "plt" in formats:
+            plt.show()
+
+    def plot_score(self, fpath="data.xxx", formats=["plt"]):
+        db = self._pre_plot(fpath, formats)
+
+        query="""
+            CREATE VIEW plot2d_trk_scr AS
+            SELECT
+                trk.SCAN_ID,
+                trk.TRK_ID,
+                trk.SCORE
+            FROM trk
+            ORDER BY
+                trk.TRK_ID  ASC,
+                trk.SCAN_ID ASC
+        """
+        db.execute(query)
+        trk_scr_df = pd.read_sql_query("SELECT * FROM plot2d_trk_scr", db)
+
+        for trk_id in trk_scr_df.TRK_ID.unique():
+            trk_data = trk_scr_df[trk_scr_df.TRK_ID == trk_id]
+            plt.plot(
+                trk_data.SCAN_ID.values,
+                trk_data.SCORE.values,
+                marker="None", alpha=1.0, linestyle="solid", label="trk"
+            )
+            plt.annotate(
+                str(int(trk_id)),
+                xy=(trk_data.tail(1).SCAN_ID, trk_data.tail(1).SCORE)
+            )
+
+        db.close()
+        if "csv" in formats:
+            p=pathlib.Path(fpath)
+            trk_scr_df.to_csv(str(p.with_name(p.stem+"_plot2d_trk_scr.csv")))
+        self._post_plot(fpath, formats)
+
+    def plot2D(self, fpath="data.xxx", formats=["plt"]):
+        db = self._pre_plot(fpath, formats)
 
         query="""
             CREATE VIEW plot2d_trk_obs AS
@@ -156,18 +207,13 @@ class BaseAnalyzer():
                 marker="D", alpha=.5, linestyle="None", label="obs"
             )
 
-        if "csv" in formats:
-            trk_obs_df.to_csv(filename+"_plot2d_trk_obs.csv")
-            sen_obs_df.to_csv(filename+"_plot2d_sen_obs.csv")
-            
-        plt.axis("equal")
-        plt.grid()
         db.close()
-
-        if "png" in formats:
-            plt.savefig(filename+".png")
-        if "plt" in formats:
-            plt.show()
+        plt.axis("equal")
+        if "csv" in formats:
+            p=pathlib.Path(fpath)
+            trk_obs_df.to_csv(str(p.with_name(p.stem+"_plot2d_trk_obs.csv")))
+            sen_obs_df.to_csv(str(p.with_name(p.stem+"_plot2d_sen_obs.csv")))
+        self._post_plot(fpath, formats)
 
     def animation(self, interval=200):
         scan_id_max = max( [self.obs_df.SCAN_ID.max(), self.trk_df.SCAN_ID.max(), self.tgt_df.SCAN_ID.max() ] ) 
@@ -226,7 +272,7 @@ class BaseAnalyzer():
                     raise NotImplementedError
 
             ax_pos = plt.gca().get_position()
-            count = fig.text( ax_pos.x1-0.1, ax_pos.y1-0.05, "count:" + str(i_scan), size = 10 )
+            count = fig.text( ax_pos.x0+0.05, ax_pos.y1-0.05, "count:" + str(i_scan), size = 10 )
 
             art_list.append( obs_art + trk_art + tgt_art + sen_art + pat_art + [count] )
 
@@ -236,8 +282,9 @@ class BaseAnalyzer():
 
 def main(): 
     anal = BaseAnalyzer.import_db()
-    anal.animation()
-    # anal.plot2D(filename="test", formats=["plt", "png", "db", "csv"])
+    # anal.animation()
+    # anal.plot2D(fpath="sample", formats=["plt", "png", "db", "csv"])
+    anal.plot_score(fpath="sample", formats=["plt", "png", "db", "csv"])
     # anal.statistics()
 
 """ Execute Section """

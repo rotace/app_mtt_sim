@@ -208,6 +208,9 @@ class Obs(BaseExporter):
     def _generate_id(cls):
         cls.obs_id_counter+=1
         return cls.obs_id_counter
+    @classmethod
+    def initialize(cls):
+        cls.obs_id_counter = 0
 
     def __init__(self, y, R, sensor=None):
         """Initialize Observation
@@ -222,7 +225,7 @@ class Obs(BaseExporter):
         self.y = y
         self.R = R
         self.sensor = sensor
-        self.obs_id = Obs._generate_id()
+        self.obs_id = self._generate_id()
 
     def get_id(self):
         return self.obs_id
@@ -636,6 +639,9 @@ class BaseTarget(BaseExporter):
     def _generate_id(cls):
         cls.tgt_id_counter+=1
         return cls.tgt_id_counter
+    @classmethod
+    def initialize(cls):
+        cls.tgt_id_counter = 0
 
     def __init__(self, SD=2, RD=3, x0=np.array([0., 0.]), start_time=0, end_time=np.inf, x_type=None):
         assert 1 <= SD <= 3
@@ -656,7 +662,7 @@ class BaseTarget(BaseExporter):
         self.start_time = start_time
         self.end_time = end_time
 
-        self.tgt_id = BaseTarget._generate_id()
+        self.tgt_id = self._generate_id()
 
     def get_id(self):
         return self.tgt_id
