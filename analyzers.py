@@ -23,10 +23,7 @@ sen_df = None
 class BaseAnalyzer():
     
     @classmethod
-    def import_df(cls, tracker, obs_df=None, trk_df=None, sen_df=None, tgt_df=None):
-        # add model info
-        if tracker:
-            obs_df = models.ModelType.add_mdl_info(obs_df, tracker.y_mdl_type())
+    def import_df(cls, obs_df=None, trk_df=None, sen_df=None, tgt_df=None):
         return cls(obs_df, trk_df, sen_df, tgt_df)
 
     @classmethod
@@ -148,7 +145,7 @@ class BaseAnalyzer():
             trk_scr_df.to_csv(str(p.with_name(p.stem+"_plot2d_trk_scr.csv")))
         self._post_plot(fpath, formats)
 
-    def plot2D(self, fpath="data.xxx", formats=["plt"]):
+    def plot2D(self, fpath="data.xxx", formats=["plt"], is_ellipse_enabled=False):
         db = self._pre_plot(fpath, formats)
 
         query="""
@@ -190,7 +187,10 @@ class BaseAnalyzer():
                 obs.SEN_ID,
                 obs.OBS_ID,
                 obs.POSIT_X AS OBS_POSIT_X,
-                obs.POSIT_Y AS OBS_POSIT_Y
+                obs.POSIT_Y AS OBS_POSIT_Y,
+                obs.R00,
+                obs.R01,
+                obs.R11
             FROM obs
             ORDER BY
                 obs.SEN_ID  ASC,
@@ -206,6 +206,14 @@ class BaseAnalyzer():
                 obs_data.OBS_POSIT_Y.values,
                 marker="D", alpha=.5, linestyle="None", label="obs"
             )
+            if is_ellipse_enabled:
+                for obs in obs_data.itertuples():
+                    cov = np.array([obs.R00, obs.R01, obs.R01, obs.R11]).reshape((2,2))
+                    width, height, theta = utils.calc_confidence_ellipse(cov)
+                    plt.gca().add_patch(pat.Ellipse(
+                        xy=(obs.OBS_POSIT_X, obs.OBS_POSIT_Y),
+                        width=width, height=height, angle=np.degrees(theta), color="c", alpha=.2
+                    ))
 
         db.close()
         plt.axis("equal")

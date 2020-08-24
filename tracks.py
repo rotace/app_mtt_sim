@@ -92,7 +92,7 @@ class BaseTrack(models.BaseExporter):
         x_val = list(self.model.x)
         x_lbl = [ v.name for v in self.model._x_type.val_type ]
         P_val = [ pij for i, pi in enumerate(self.model.P) for j, pij in enumerate(pi) if i<=j ]
-        P_lbl = [ "P" + str(i) + str(j) for i in range(self.model.P.shape[0]) for j in range(self.model.P.shape[1]) if i<=j]
+        P_lbl = [ "P" + str(i) + str(j) for i in range(self.model.P.shape[0]) for j in range(self.model.P.shape[1]) if i<=j ]
         return series.append( pd.Series(x_val+P_val, index=x_lbl+P_lbl, dtype=float) )
 
     @staticmethod

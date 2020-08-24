@@ -1,12 +1,32 @@
-import math
 import time
+import math
+import cmath
 import queue
 import numpy as np
 from scipy.spatial.transform import Rotation
+from scipy.stats import chi2
 
 import nlopt
 
 IGNORE_THRESH = -1000000
+
+
+def calc_confidence_ellipse(cov, p=0.95):
+    assert isinstance(cov, np.ndarray)
+    assert cov.shape == (2,2)
+    lambdas, vecs = np.linalg.eigh(cov)
+    order = lambdas.argsort()[::-1]
+    lambdas, vecs = lambdas[order], vecs[:,order]
+    c = np.sqrt(chi2.ppf(p, 2))
+    width, height = 2 * c * np.sqrt(lambdas)
+    if width == height:
+        theta = 0.0
+    else:
+        x,y = vecs[:,0]
+        if x<0:
+            x=-x; y=-y
+        theta = cmath.phase(x + 1.0j*y)
+    return width, height, theta
 
 
 def cart2polar(vec_cart):

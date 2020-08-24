@@ -43,13 +43,6 @@ class ValueType(enum.Enum):
     INTENSITY = enum.auto()
 
     @staticmethod
-    def rename_df_cols(df, val_type):
-        if val_type:
-            return df.rename(columns={ "ARRAY"+str(i):v.name for i, v in enumerate(val_type) })
-        else:
-            return df
-
-    @staticmethod
     def generate_value_type(crd_type, SD, RD, is_vel_measure_enabled):
         if    crd_type == CoordType.CART:
             val_type = [
@@ -121,12 +114,6 @@ class ModelType:
                     assert False, "x.shape invalid, actual:" + str(x.shape)
 
         return x
-
-    @staticmethod
-    def add_mdl_info(df, mdl_type):
-        if "ARRAY0" in df.columns:
-            df.insert(df.columns.get_loc("ARRAY0"), "CRD_TYPE", mdl_type.crd_type.name)
-        return ValueType.rename_df_cols(df, mdl_type.val_type)
 
     @staticmethod
     def generate_model_type(crd_type, SD, RD, is_vel_measure_enabled=False):
@@ -230,15 +217,41 @@ class Obs(BaseExporter):
     def get_id(self):
         return self.obs_id
 
-    def to_record(self, timestamp, scan_id):
+    def to_record(self, timestamp, scan_id, mdl_type):
         series = super().to_record(timestamp, scan_id)
         # integer
         value=[self.get_id(), self.sensor.get_id()]
         label=["OBS_ID", "SEN_ID"]
         series = series.append( pd.Series(value, index=label) )
+        # string
+        value=[mdl_type.crd_type.name]
+        label=["CRD_TYPE"]
+        series = series.append( pd.Series(value, label) )
         # real
-        y_lbl = [ "ARRAY"+str(v) for v in range(len(self.y)) ]
-        return series.append( pd.Series(list(self.y), index=y_lbl, dtype=float) )
+        y_val = list(self.y)
+        y_lbl = [ v.name for v in mdl_type.val_type ]
+        R_val = [ rij for i, ri in enumerate(self.R) for j, rij in enumerate(ri) if i<=j ]
+        R_lbl = [ "R" + str(i) + str(j) for i in range(self.R.shape[0]) for j in range(self.R.shape[1]) if i<=j ]
+        return series.append( pd.Series(y_val+R_val, index=y_lbl+R_lbl, dtype=float) )
+
+    @classmethod
+    def from_record(cls, series):
+        assert isinstance(series, pd.Series), "series is invalid, actual:"  + str(type(series))
+        cov_type_str = [ cv for cv in series.index.values if cv[0] == "R" ]
+        val_type_str = list(set(series.index.values) &  {vt.name for vt in ValueType})
+        val_type = [ vt  for vt_str in val_type_str for vt in ValueType if vt_str == vt.name ]
+        mdl_type = ModelType(series["CRD_TYPE"], val_type, None, None)
+        y = series[val_type_str].values
+        r = series[cov_type_str].values
+        R = np.zeros((len(y), len(y)))
+        idx=0
+        for i in range(len(y)):
+            for j in range(len(y)):
+                if i<=j:
+                    R[i,j] = r[idx]
+                    idx += 1
+        R = np.triu(R) + np.triu(R).T
+        return cls(y=y, R=R)
 
 
 class KalmanModel():

@@ -2,10 +2,27 @@ import unittest
 import utils
 import numpy as np
 from scipy.linalg import block_diag
+from scipy.stats import chi2
 
 np.set_printoptions(suppress=True)
 
 class TestUtils(unittest.TestCase):
+
+    def test_calc_confidence_ellipse(self):
+        expected = (2.0, 2.0, 0.0)
+        cov = np.array([1, 0, 0, 1]).reshape((2,2))
+        actual=utils.calc_confidence_ellipse(cov, p=chi2.cdf(x=1.0, df=2))
+        np.testing.assert_almost_equal(actual, expected)
+
+        expected = (2*np.sqrt(2), 2.0, np.radians(30.0))
+        cov = np.array([2, 0, 0, 1]).reshape((2,2))
+        s = np.sin(np.radians(30))
+        c = np.cos(np.radians(30))
+        rot = np.array([c, -s, s, c]).reshape((2,2))
+        cov = rot @ cov @ rot.T
+        actual=utils.calc_confidence_ellipse(cov, p=chi2.cdf(x=1.0, df=2))
+        np.testing.assert_almost_equal(actual, expected)
+
 
     def test_cart2polar_and_polar2cart(self):
         # loop test

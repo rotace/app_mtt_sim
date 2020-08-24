@@ -156,13 +156,13 @@ def sample_MultiSensorGNN():
         [ tgt.update(tracker._dT()) for tgt in tgt_list ]
 
         # save as dataframe
-        obs_df = obs_df.append( [ obs.to_record(timestamp, i_scan) for obs in obs_list ], ignore_index=True )
+        obs_df = obs_df.append( [ obs.to_record(timestamp, i_scan, tracker.y_mdl_type()) for obs in obs_list ], ignore_index=True )
         trk_df = trk_df.append( [ trk.to_record(timestamp, i_scan) for trk in trk_list ], ignore_index=True )
         tgt_df = tgt_df.append( [ tgt.to_record(timestamp, i_scan) for tgt in tgt_list ], ignore_index=True)
         sen_df = sen_df.append( [ sen.to_record(timestamp, i_scan) for sen in sen_list ], ignore_index=True )
 
     # export
-    anal = analyzers.BaseAnalyzer.import_df(tracker, obs_df, trk_df, sen_df, tgt_df)
+    anal = analyzers.BaseAnalyzer.import_df(obs_df, trk_df, sen_df, tgt_df)
     anal.export_csv()
     anal.export_db()
 
