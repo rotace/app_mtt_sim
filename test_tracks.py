@@ -15,7 +15,18 @@ class MockTracker():
         self.count = 0
 
 class TestTracks(unittest.TestCase):
-    
+
+    def test_counter(self):
+        class InheritBaseTrack(tracks.BaseTrack):
+            pass
+        tracks.BaseTrack.initialize()
+        np.testing.assert_equal(InheritBaseTrack._generate_id(), 1)
+        np.testing.assert_equal(tracks.BaseTrack._generate_id(), 2)
+        InheritBaseTrack.initialize()
+        np.testing.assert_equal(tracks.BaseTrack._generate_id(), 1)
+        np.testing.assert_equal(InheritBaseTrack._generate_id(), 2)
+
+
     def test_SimpleManagedTrack(self):
         
         ND=3

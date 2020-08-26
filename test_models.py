@@ -10,6 +10,25 @@ np.set_printoptions(suppress=True)
 
 class TestModels(unittest.TestCase):
 
+    def test_counter(self):
+        class InheritObs(models.Obs):
+            pass
+        class InheritBaseTarget(models.BaseTarget):
+            pass
+        models.Obs.initialize()
+        np.testing.assert_equal(InheritObs._generate_id(), 1)
+        np.testing.assert_equal(models.Obs._generate_id(), 2)
+        InheritObs.initialize()
+        np.testing.assert_equal(models.Obs._generate_id(), 1)
+        np.testing.assert_equal(InheritObs._generate_id(), 2)
+        models.BaseTarget.initialize()
+        np.testing.assert_equal(InheritBaseTarget._generate_id(), 1)
+        np.testing.assert_equal(models.BaseTarget._generate_id(), 2)
+        InheritBaseTarget.initialize()
+        np.testing.assert_equal(models.BaseTarget._generate_id(), 1)
+        np.testing.assert_equal(InheritBaseTarget._generate_id(), 2)
+
+
     def test_LinearKalmanModel(self):
         """Linear Kalman Filter
 

@@ -15,12 +15,12 @@ class BaseSensor(models.BaseExporter):
     sen_id_counter = 0
     @classmethod
     def _generate_id(cls):
-        cls.sen_id_counter+=1
-        return cls.sen_id_counter
+        BaseSensor.sen_id_counter+=1
+        return BaseSensor.sen_id_counter
 
     @classmethod
     def initialize(cls):
-        cls.sen_id_counter = 0
+        BaseSensor.sen_id_counter = 0
 
     def __init__(self, **kwargs):
         assert "dT" not in kwargs

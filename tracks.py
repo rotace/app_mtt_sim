@@ -48,12 +48,12 @@ class BaseTrack(models.BaseExporter):
     trk_id_counter = 0
     @classmethod
     def _generate_id(cls):
-        cls.trk_id_counter+=1
-        return cls.trk_id_counter
+        BaseTrack.trk_id_counter+=1
+        return BaseTrack.trk_id_counter
 
     @classmethod
     def initialize(cls):
-        cls.trk_id_counter = 0
+        BaseTrack.trk_id_counter = 0
 
     def __init__(self, obs, model, **kwargs):
         # set param
