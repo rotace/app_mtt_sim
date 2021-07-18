@@ -7,6 +7,7 @@
 
 import os
 import sys
+import fire
 import cmath
 import sqlite3
 import numpy as np
@@ -22,18 +23,6 @@ import sensors
 import trackers
 import analyzers
 from notebook import IRSTexample
-
-def main():
-    """
-    Main Function
-
-    In this function, you can select sample function.
-    """
-
-    # sample_IRSTexample372()
-    # sample_IRSTexample878()
-    sample_MultiSensorGNN()
-    # sample_JPDA()
 
 def sample_IRSTexample372():
     """
@@ -167,7 +156,7 @@ def sample_MultiSensorGNN():
     anal.export_db()
 
     # analyse
-    analyzers.main()
+    anal.animation()
 
 def sample_JPDA():
     """
@@ -254,7 +243,155 @@ def sample_JPDA():
     plt.show()
 
 
+def sample_FGT(is_fgt=True):
+    PD = 0.75
+    PFA = 1e-7
+    scan_time = 0.5
+    sigma_o   = 1.0
+    time_m    = 2.0
+    sigma_mx  = 4.0
+    sigma_my  = 1.0
+    sigma_vx  = 18.0
+    sigma_vy  =  4.0
+
+    np.random.seed(0)
+    class Radar2DSensor(sensors.Polar2DSensor):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+
+        def is_trk_in_range(self, trk):
+            dist, azim = cmath.polar( (trk.model.x[0]-self.x[0]) + 1j*(trk.model.x[1]-self.x[1]) )
+            return self.range_min < dist < self.range_max and abs(azim-self.angle) < self.width/2
+
+        def is_tgt_in_range(self, tgt):
+            dist, azim = cmath.polar( (tgt.x[0]-self.x[0]) + 1j*(tgt.x[1]-self.x[1]) )
+            return self.range_min < dist < self.range_max and abs(azim-self.angle) < self.width/2
+
+    sen_list = [
+        Radar2DSensor(
+            PD=PD,
+            VC=1.0,
+            PFA=PFA,
+            BNT=0.03,
+            x0=np.array([0.0, 10.0, 0.0, 0.0]),
+            angle0=0.0/180*cmath.pi,
+            DETECT_RANGE_MAX=10000,
+            DETECT_RANGE_MIN=10,
+            DETECT_WIDTH=120/180*cmath.pi
+        )
+    ]
+
+    tgt_list = [
+        models.SimpleTarget(SD=2, x0=[10000., 00.,-10.,+0.0]),
+        models.SimpleTarget(SD=2, x0=[10000., 10.,-10.,+0.0]),
+        models.SimpleTarget(SD=2, x0=[10000., 20.,-10.,-0.0]),
+        models.SimpleTarget(SD=2, x0=[10000., 30.,-10.,-0.0]),
+        models.SimpleTarget(SD=2, x0=[10000., 40.,-10.,-0.0]),
+        models.SimpleTarget(SD=2, x0=[10000., 50.,-10.,-0.0]),
+        models.SimpleTarget(SD=2, x0=[10000., 60.,-10.,-0.0]),
+        models.SimpleTarget(SD=2, x0=[10000., 70.,-10.,-0.0]),
+        models.SimpleTarget(SD=2, x0=[10000., 80.,-10.,-0.0]),
+    ]
+
+    if is_fgt:
+        tracker = trackers.FGT(
+            sen_list=sen_list,
+            model_factory=models.SingerModelFactory(
+                model=models.KalmanModel,
+                dT=scan_time,
+                tm=time_m,
+                sm=[sigma_mx, sigma_my],
+                SD=2,
+                P0=np.diag([sigma_o**2, sigma_o**2, sigma_vx**2, sigma_vy**2])
+            ),
+            track_factory=tracks.BaseTrackFactory(
+                track=tracks.FormationIndivisualTrack
+            )
+        )
+    else:
+        tracker = trackers.GNN(
+            sen_list=sen_list,
+            model_factory=models.SingerModelFactory(
+                model=models.KalmanModel,
+                dT=scan_time,
+                tm=time_m,
+                sm=[sigma_mx, sigma_my],
+                SD=2,
+                P0=np.diag([sigma_o**2, sigma_o**2, sigma_vx**2, sigma_vy**2])
+            ),
+            track_factory=tracks.BaseTrackFactory(
+                track=tracks.ScoreManagedTrack
+            )
+        )
+
+    obs_df = pd.DataFrame()
+    tgt_df = pd.DataFrame()
+    trk_df = pd.DataFrame()
+    sen_df = pd.DataFrame()
+
+    for i_scan in range(100):
+        timestamp = pd.Timestamp(i_scan, unit="s")
+
+        sensor = sen_list[0]
+        R = np.eye(2) * 20.0
+        obs_list = [
+            models.Obs(np.random.multivariate_normal(tgt.x[:2], R), R)for tgt in tgt_list
+            if sensor.is_tgt_in_range(tgt) and np.random.choice([True, False], p=[PD, 1-PD])
+        ]
+        trk_list = tracker.register_scan(obs_list, sensor=sensor)
+
+        # tgt_list update
+        [ tgt.update(tracker._dT()) for tgt in tgt_list ]
+
+        # save as dataframe
+        obs_df = obs_df.append( [ obs.to_record(timestamp, i_scan, tracker.y_mdl_type()) for obs in obs_list ], ignore_index=True )
+        trk_df = trk_df.append( [ trk.to_record(timestamp, i_scan) for trk in trk_list ], ignore_index=True )
+        tgt_df = tgt_df.append( [ tgt.to_record(timestamp, i_scan) for tgt in tgt_list ], ignore_index=True)
+        sen_df = sen_df.append( [ sen.to_record(timestamp, i_scan) for sen in sen_list ], ignore_index=True )
+
+    # export
+    anal = analyzers.BaseAnalyzer.import_df(obs_df, trk_df, sen_df, tgt_df)
+    if is_fgt:
+        anal.export_db(fpath="data_fgt")
+    else:
+        anal.export_db(fpath="data_gnn")
+
+    # analyze
+    anal.plot2D()
+
+
 """ Execute Section """
+class Worker:
+    """
+    HOW TO USE
+    ex1)
+    $ python main.py --help
+    ex2)
+    $ python main.py irst --help
+    ex3)
+    $ python main.py irst -y
+    ex4)
+    $ python main.py irst -y -z
+    """
+    def irst(self, y=False, z=True):
+        if y:
+            sample_IRSTexample372()
+            return
+        if z:
+            sample_IRSTexample878()
+            return
+
+    def jpda(self):
+        sample_JPDA()
+
+    def fgt(self, g=False):
+        sample_FGT(is_fgt=(not g))
+
+    def multi(self):
+        sample_MultiSensorGNN()
+
 if __name__ == '__main__':
     if (sys.flags.interactive != 1):
-        main()
+        worker = Worker()
+        # fire.Fire(worker)
+        sample_FGT()

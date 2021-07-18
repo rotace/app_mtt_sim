@@ -179,6 +179,56 @@ def swap_block_matrix(mat, n_block):
     return mat
 
 
+def calc_groups_by_distance_segmentation_method(data_list, thresh):
+
+    if len(data_list) == 0:
+        return (None, None)
+
+    G0=0
+    A=data_list
+    G=[-1]*len(A)
+    N=len(G)
+
+    for i in range(0,N):
+        X0 = A[i]
+        if G[i] == -1:
+            G0 += 1
+            G[i] = G0
+        for j in range(i+1,N):
+            dist = abs(X0 - A[j])
+            if dist < thresh:
+                G[j] = G0
+
+        Y1 = A[:i+1]
+        Y2 = []
+        Y3 = []
+        P1 = G[:i+1]
+        P2 = []
+        P3 = []
+        for j in range(i+1,N):
+            if G[j] == G0:
+                Y2.append(A[j])
+                P2.append(G[j])
+            else:
+                Y3.append(A[j])
+                P3.append(G[j])
+
+        if   Y2==[] and Y3!=[]:
+            A = Y1+Y3
+            G = P1+P3
+        elif Y3==[] and Y2!=[]:
+            A = Y1+Y2
+            G = P1+P2
+        elif Y2==[] and Y3==[]:
+            A = Y1
+            G = P1
+        else:
+            A = Y1+Y2+Y3
+            G = P1+P2+P3
+
+    return (A,G)
+
+
 def calc_best_assignment_by_auction( price_matrix, is_maximized=True , is_verbosed=False):
     """Calculate Best Assignment by Auction Method
 

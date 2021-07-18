@@ -342,7 +342,70 @@ class TOMHT(BaseTracker):
     pass
 
 
+class FGT(BaseTracker):
+    """Calculate Association of Observations by FGT Method
 
+        ref) Radar Data Processing with Applications
+                10.5 Formation Group Tracking
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.trk_list = []
+
+    def register_scan(self, obs_list, **kwargs):
+
+        self._preprocess(obs_list, **kwargs)
+
+        #---- calc price
+
+        # init
+        M = len(self.trk_list)
+        N = len(obs_list)
+        S = self._calc_price_matrix(self, obs_list)
+
+        #---- calc association
+
+        _, assign = utils.calc_best_assignment_by_auction(S)
+        unassign = set(range(M)) - set(assign)
+
+        #---- update trackfile
+
+        for j_obs, i_trk in enumerate(assign):
+            if i_trk < M:
+                # update trackfile with observation
+                self.trk_list[i_trk].assign( obs_list[j_obs] )
+
+            else:
+                # create trackfile
+                self.trk_list.append( self.track_factory.create( obs_list[j_obs] ) )
+
+        # update trackfile without observation
+        for i_trk in unassign:
+            self.trk_list[i_trk].unassign(self.sensor)
+
+        #---- track confirmation and deletion
+        
+        # delete trackfile
+        self.trk_list = [ trk for trk in self.trk_list if not trk.judge_deletion() ]
+
+        # grouping indivisual track
+        if self.trk_list:
+            A,G = utils.calc_groups_by_distance_segmentation_method(self.trk_list, thresh=10000.0)
+
+            grp_dict={}
+            for a,g in zip(A,G):
+                if g not in grp_dict:
+                    grp_dict[g] = tracks.FormationGroupTrack()
+                grp_dict[g].append(a)
+
+            for grp in grp_dict.values():
+                grp.calc_model(self.track_factory.model_factory)
+
+        # update for next time (tracker, sensor, etc.)
+        self._update()
+
+        # confirmation and representation
+        return [ trk for trk in self.trk_list if trk.judge_confirmation() ]
 
 class TrackerEvaluator():
     """ Evaluate Each Tracker

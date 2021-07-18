@@ -13,6 +13,11 @@ class CoordType(enum.Enum):
     HTURN_NCS = enum.auto() # 4.3.3 Nearly Constasnt Speed Horizontal Turn Model
     OTHER = enum.auto() # ex) Cylinder Coord [R,AZIM,HEIGHT]
 
+    @classmethod
+    def from_string(cls, name):
+        for e in cls:
+            if name == e.name:
+                return e
 
 class ValueType(enum.Enum):
     # -- Kinematic Value
@@ -41,6 +46,12 @@ class ValueType(enum.Enum):
     SPEED = enum.auto()
     # -- Attribute Value
     INTENSITY = enum.auto()
+
+    @classmethod
+    def from_string(cls, name):
+        for e in cls:
+            if name == e.name:
+                return e
 
     @staticmethod
     def generate_value_type(crd_type, SD, RD, is_vel_measure_enabled):
@@ -93,6 +104,19 @@ class ModelType:
         self.val_type = val_type
         self.SD = SD
         self.RD = RD
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return NotImplemented
+        return (
+            self.crd_type == other.crd_type and
+            self.val_type == other.val_type and
+            self.SD == other.SD and
+            self.RD == other.RD
+        )
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
     def extract_x(self, x, val_type):
         idx = np.array([ self.val_type.index(vt) for vt in val_type ])
@@ -239,8 +263,6 @@ class Obs(BaseExporter):
         assert isinstance(series, pd.Series), "series is invalid, actual:"  + str(type(series))
         cov_type_str = [ cv for cv in series.index.values if cv[0] == "R" ]
         val_type_str = list(set(series.index.values) &  {vt.name for vt in ValueType})
-        val_type = [ vt  for vt_str in val_type_str for vt in ValueType if vt_str == vt.name ]
-        mdl_type = ModelType(series["CRD_TYPE"], val_type, None, None)
         y = series[val_type_str].values
         r = series[cov_type_str].values
         R = np.zeros((len(y), len(y)))
@@ -254,14 +276,14 @@ class Obs(BaseExporter):
         return cls(y=y, R=R)
 
 
-class KalmanModel():
+class KalmanModel(BaseExporter):
     """ Kalman Model
     
         ref) Design and Analysis of Modern Tracking Systems
                     3.3 Kalman Filtering
                     3.4 Extended Kalman Filtering
     """
-    def __init__(self, x, F, H, P, Q, is_nonlinear=False ,x_type=None, y_type=None):
+    def __init__(self, x, F, H, P, Q, is_nonlinear=False ,x_type=None, y_type=None, predict=True):
         assert isinstance(x, np.ndarray)
         assert isinstance(F, np.ndarray)
         assert isinstance(H, np.ndarray)
@@ -283,7 +305,38 @@ class KalmanModel():
         self.Q = Q
         self._x_type = x_type
         self._y_type = y_type
-        self._predict_step()
+        if predict:
+            self._predict_step()
+
+    def to_record(self, series=pd.Series()):
+        # string
+        value=[self._x_type.crd_type.name]
+        label=["CRD_TYPE"]
+        series = series.append( pd.Series(value, label) )
+        # real
+        x_val = list(self.x)
+        x_lbl = [ v.name for v in self._x_type.val_type ]
+        P_val = [ pij for i, pi in enumerate(self.P) for j, pij in enumerate(pi) if i<=j ]
+        P_lbl = [ "P" + str(i) + str(j) for i in range(self.P.shape[0]) for j in range(self.P.shape[1]) if i<=j ]
+        return series.append( pd.Series(x_val+P_val, index=x_lbl+P_lbl, dtype=float) )
+
+    @classmethod
+    def from_record(cls, series):
+        cov_type_str = [ cts for cts in series.index.values if cts[0] == "P" ]
+        val_type_str = [ vts for vts in series.index.values if vts in [ vt.name for vt in ValueType ] ]
+        crd_type = CoordType.from_string(series["CRD_TYPE"])
+        val_type = [ ValueType.from_string(vt_str) for vt_str in val_type_str ]
+        x = series[val_type_str].values
+        p = series[cov_type_str].values
+        P = np.zeros((len(x), len(x)))
+        idx=0
+        for i in range(len(x)):
+            for j in range(len(x)):
+                if i<=j:
+                    P[i,j] = p[idx]
+                    idx += 1
+        P = np.triu(P) + np.triu(P).T
+        return (x, P, crd_type, val_type)
 
     def update(self, obs):
         """Update Model"""
@@ -451,7 +504,44 @@ class ModelFactory():
         self._y_type = ModelType.generate_model_type(crd_type=crd_type,SD=self.SD,RD=1,is_vel_measure_enabled=is_vel_measure_enabled)
 
     def create(self, obs):
-        raise NotImplementedError
+        assert hasattr(self, "F"), "should override __init__() and set member value self.F!"
+        assert hasattr(self, "H"), "should override __init__() and set member value self.H!"
+        assert hasattr(self, "P"), "should override __init__() and set member value self.P!"
+        assert hasattr(self, "Q"), "should override __init__() and set member value self.Q!"
+        assert obs.y.shape == (self.YD,), "obs.y.shape invalid, actual:" + str(obs.y.shape)
+        assert obs.R.shape == (self.YD,self.YD), "obs.R.shape invalid, actual:" + str(obs.R.shape)
+
+        F = self.F
+        H = self.H
+        P = self.P
+        Q = self.Q
+
+        x = np.zeros(self.XD)
+        x[0:self.YD] = obs.y
+
+        R = np.zeros( (self.XD, self.XD) )
+        R[:self.YD, :self.YD] = obs.R
+
+        P = np.maximum(P, Q)
+        P = np.maximum(P, R)
+
+        return self.model(x, F, H, P, Q, is_nonlinear=False, x_type=self._x_type, y_type=self._y_type)
+
+    def create_from_record(self, series):
+        assert hasattr(self, "F"), "should override __init__() and set member value self.F!"
+        assert hasattr(self, "H"), "should override __init__() and set member value self.H!"
+        assert hasattr(self, "Q"), "should override __init__() and set member value self.Q!"
+        assert isinstance(series, pd.Series), "series is invalid, actual:"  + str(type(series))
+
+        F = self.F
+        H = self.H
+        Q = self.Q
+        
+        x, P, crd_type, val_type = self.model.from_record(series)
+        mdl_type = ModelType(crd_type, val_type, self.SD, self.RD)
+        assert mdl_type == self._x_type
+
+        return self.model(x, F, H, P, Q, is_nonlinear=False, x_type=self._x_type, y_type=self._y_type)
 
 
 
@@ -497,16 +587,6 @@ class SimpleModelFactory(ModelFactory):
         else:
             assert len(q) == SD
 
-        self.q = q
-
-    def create(self, obs):
-        assert obs.y.shape == (self.SD,), "obs.y.shape invalid, actual:" + str(obs.y.shape)
-        assert obs.R.shape == (self.SD,self.SD), "obs.R.shape invalid, actual:" + str(obs.R.shape)
-        
-        dT = self.dT
-        x = np.zeros(self.XD)
-        x[0:self.YD] = obs.y
-
         H = np.zeros( (self.YD, self.XD) )
         H[0:self.YD, 0:self.YD] = np.eye(self.YD)
 
@@ -524,18 +604,17 @@ class SimpleModelFactory(ModelFactory):
         )
         Q = Q[3-self.RD:, 3-self.RD:]
 
-        F = utils.swap_block_matrix( block_diag( *tuple([F   for i   in     range(self.SD)        ]) ), self.SD )
-        Q = utils.swap_block_matrix( block_diag( *tuple([Q*q for i,q in zip(range(self.SD),self.q)]) ), self.SD )
+        F = utils.swap_block_matrix( block_diag( *tuple([F    for i    in     range(self.SD)   ]) ), self.SD )
+        Q = utils.swap_block_matrix( block_diag( *tuple([Q*qi for i,qi in zip(range(self.SD),q)]) ), self.SD )
 
         P = np.zeros( (self.XD, self.XD) )
-        R = np.zeros( (self.XD, self.XD) )
         P[:len(self.P0), :len(self.P0)] = self.P0
-        R[:self.YD, :self.YD] = obs.R
-        P = np.maximum(P, Q)
-        P = np.maximum(P, R)
-        
-        return self.model(x, F, H, P, Q, is_nonlinear=False, x_type=self._x_type, y_type=self._y_type)
 
+        self.q = q
+        self.F = F
+        self.H = H
+        self.P = P
+        self.Q = Q
 
 
 class SingerModelFactory(ModelFactory):
@@ -589,25 +668,14 @@ class SingerModelFactory(ModelFactory):
         else:
             assert len(sm) == SD
 
-        self.tm = tm
-        self.sm = sm
-
-    def create(self, obs):
-        assert obs.y.shape == (self.YD,), "obs.y.shape invalid, actual:" + str(obs.y.shape)
-        assert obs.R.shape == (self.YD,self.YD), "obs.R.shape invalid, actual:" + str(obs.R.shape)
-
-        dT = self.dT
-        x = np.zeros(self.XD)
-        x[0:self.YD] = obs.y
-
         H = np.zeros( (self.YD, self.XD) )
         H[0:self.YD, 0:self.YD] = np.eye(self.YD)
 
         F_list = []
         Q_list = []
 
-        for tm, sm in zip(self.tm, self.sm):
-            beta = 1/tm
+        for ti, si in zip(tm, sm):
+            beta = 1/ti
             rm = np.exp(-beta * dT)
 
             F = np.array(
@@ -627,7 +695,7 @@ class SingerModelFactory(ModelFactory):
                 [[q11, q12, q13],
                 [q12, q22, q23],
                 [q13, q23, q33]]
-            ) * 2*sm**2/tm
+            ) * 2*si**2/ti
 
             F_list.append(F)
             Q_list.append(Q)
@@ -636,14 +704,14 @@ class SingerModelFactory(ModelFactory):
         Q = utils.swap_block_matrix( block_diag( *tuple(Q_list) ), self.SD )
 
         P = np.zeros( (self.XD, self.XD) )
-        R = np.zeros( (self.XD, self.XD) )
         P[:len(self.P0), :len(self.P0)] = self.P0
-        R[:self.YD, :self.YD] = obs.R
-        P = np.maximum(P, Q)
-        P = np.maximum(P, R)
-        
-        return self.model(x, F, H, P, Q, is_nonlinear=False, x_type=self._x_type, y_type=self._y_type)
 
+        self.tm = tm
+        self.sm = sm
+        self.F = F
+        self.H = H
+        self.P = P
+        self.Q = Q
 
 class BaseTarget(BaseExporter):
     """ BaseTarget """

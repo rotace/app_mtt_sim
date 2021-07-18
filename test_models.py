@@ -112,6 +112,26 @@ class TestModels(unittest.TestCase):
         np.testing.assert_equal(actual, expected)
 
 
+    def test_SimpleModelFactory(self):
+        # to_record/from_record check
+        mf = models.SimpleModelFactory(
+            model = models.KalmanModel,
+            dT = 1.0,
+            q = 1.0
+        )
+
+        mdl1 = mf.create(
+            models.Obs(
+                y=np.array([1,0]),
+                R=np.zeros((1,1))+0.1,
+                sensor=sensors.BaseSensor()
+            )
+        )
+
+        series = mdl1.to_record()
+        mdl2 = mf.create_from_record(series)
+
+
     def test_SignerModelFactory(self):
         """Singer Model Linear Kalman Filter
 

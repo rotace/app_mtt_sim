@@ -1,5 +1,7 @@
 import os
+from sensors import BaseSensor
 import sys
+import fire
 import cmath
 import pathlib
 import sqlite3
@@ -288,14 +290,53 @@ class BaseAnalyzer():
         plt.show()
 
 
-def main(): 
-    anal = BaseAnalyzer.import_db()
-    # anal.animation()
-    # anal.plot2D(fpath="sample", formats=["plt", "png", "db", "csv"])
-    anal.plot_score(fpath="sample", formats=["plt", "png", "db", "csv"])
-    # anal.statistics()
+def create_format_args(plt=False, png=False, db=False, csv=False):
+    formats = []
+    if plt:
+        formats.append("plt")
+    if png:
+        formats.append("png")
+    if db:
+        formats.append("db")
+    if csv:
+        formats.append("csv")
+    return formats
+
+class Worker:
+    """
+    HOW TO USE
+    ex1)
+    $ python analyzers.py --help
+    ex2)
+    $ python analyzers.py plot --help
+    ex3)
+    $ python analyzers.py plot data
+    ex4)
+    $ python analyzers.py plot -fpath=data
+    ex5)
+    $ python analyzers.py plot -fpath=data -png -csv
+    """
+    def anime(self, fpath):
+        anal = BaseAnalyzer.import_db(fpath)
+        anal.animation()
+
+    def plot(self, fpath, plt=True, png=False, db=False, csv=False):
+        formats=create_format_args(plt, png, db, csv)
+        anal = BaseAnalyzer.import_db(fpath)
+        anal.plot2D(fpath=fpath, formats=formats)
+
+    def score(self, fpath, plt=True, png=False, db=False, csv=False):
+        formats=create_format_args(plt, png, db, csv)
+        anal = BaseAnalyzer.import_db(fpath)
+        anal.plot_score(fpath=fpath, formats=formats)
+
+    def stat(self, fpath):
+        anal = BaseAnalyzer.import_db(fpath)
+        anal.statistics()
+
 
 """ Execute Section """
 if __name__ == '__main__':
     if (sys.flags.interactive != 1):
-        main()
+        worker = Worker()
+        fire.Fire(worker)

@@ -1,5 +1,8 @@
 import copy
+from warnings import catch_warnings
+import warnings
 import numpy as np
+from numpy.core.defchararray import mod
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -84,46 +87,19 @@ class BaseTrack(models.BaseExporter):
         value=[trk_id, obs_id, self.scr_list[-1]] 
         label=["TRK_ID", "OBS_ID", "SCORE"]
         series = series.append( pd.Series(value, index=label) )
-        # string
-        value=[self.model._x_type.crd_type.name]
-        label=["CRD_TYPE"]
-        series = series.append( pd.Series(value, label) )
-        # real
-        x_val = list(self.model.x)
-        x_lbl = [ v.name for v in self.model._x_type.val_type ]
-        P_val = [ pij for i, pi in enumerate(self.model.P) for j, pij in enumerate(pi) if i<=j ]
-        P_lbl = [ "P" + str(i) + str(j) for i in range(self.model.P.shape[0]) for j in range(self.model.P.shape[1]) if i<=j ]
-        return series.append( pd.Series(x_val+P_val, index=x_lbl+P_lbl, dtype=float) )
+        return series.append( self.model.to_record() )
 
     @staticmethod
-    def from_record(series):
+    def from_record_and_factory(series, track_factory, model_factory):
         assert isinstance(series, pd.Series), "series is invalid, actual:"  + str(type(series))
-        cov_type_str = [ cv for cv in series.index.values if cv[0] == "P" ]
-        val_type_str = list(set(series.index.values) &  {vt.name for vt in models.ValueType})
-        val_type = [ vt  for vt_str in val_type_str for vt in models.ValueType if vt_str == vt.name ]
-        mdl_type = models.ModelType(series["CRD_TYPE"], val_type, None, None)
-        x = series[val_type_str].values
-        p = series[cov_type_str].values
-        P = np.zeros((len(x), len(x)))
-        idx=0
-        for i in range(len(x)):
-            for j in range(len(x)):
-                if i<=j:
-                    P[i,j] = p[idx]
-                    idx += 1
-        P = np.triu(P) + np.triu(P).T
-        class DummyModel():
-            def __init__(self, x, P, x_type):
-                self.x = x
-                self.P = P
-                self._x_type = x_type
+        model = models.KalmanModel.from_record_and_factory(series, model_factory)
         class DummyTrack():
             def __init__(self, model, trk_id):
                 self.model = model
                 self.trk_id = trk_id
             def get_id(self):
                 return self.trk_id
-        return DummyTrack(model=DummyModel(x=x, P=P, x_type=mdl_type), trk_id=series["TRK_ID"])
+        return DummyTrack(model=model, trk_id=series["TRK_ID"])
 
     def assign(self, obs):
         # set data
@@ -326,6 +302,92 @@ class PDATrack(BaseTrack):
     def judge_deletion(self):
         # use pt for deletion
         return self.pt_list[-1] < 0.4
+
+
+
+class FormationIndivisualTrack(ScoreManagedTrack):
+    """ Indivisual Track for Formation Group Tracking
+
+        ref) Radar Data Processing with Applications
+                10.5 Formation Group Tracking
+
+     * Use Kalman Filter
+     * Use Log Likelihood Ratio as Score
+    """
+    def __init__(self, obs, model_factory, **kwargs):
+        super().__init__(obs, model_factory, **kwargs)
+        self.group=None
+        self.group_model=None
+
+    def __sub__(self, other):
+        # dx, _ = models.ModelType.diff_x(self.model.x, self.model._x_type, other.model.x, other.model._x_type)
+        dx = self.model.x - other.model.x
+        P  = self.model.P + other.model.P
+        return dx @ np.linalg.inv(P) @ dx
+
+    def calc_match_price(self, obs):
+        assert self.group is not None
+
+        if self.group.is_group():
+            dist, detS, M = self.group_model.norm_of_residual(obs)
+            gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
+            return gate - dist
+        else:
+            return super().calc_match_price(obs)
+
+    def get_gate(self, obs):
+        assert self.group is not None
+
+        if self.group.is_group():
+            dist, detS, M = self.group_model.norm_of_residual(obs)
+            gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
+            if self.param["gate"]:
+                gate = self.param["gate"]
+        else:
+            gate, dist = super().get_gate(obs)
+
+        return (gate, dist)
+
+    def set_group(self, grp):
+        self.group=grp
+
+    def set_group_model(self, model):
+        for i, obs in enumerate(reversed(self.obs_list)):
+            if obs is not None:
+                x = obs.y @ model.H
+                model.x[model.H.sum(axis=0)>0] = x[model.H.sum(axis=0)>0]
+                [ model._predict_step() for _ in range(i+1) ]
+                self.group_model = model
+                break
+
+class FormationGroupTrack:
+    """ Group Track for Formation Group Tracking
+
+        ref) Radar Data Processing with Applications
+                10.5 Formation Group Tracking
+
+     * Use Kalman Filter
+     * Use Log Likelihood Ratio as Score
+    """
+    def __init__(self) -> None:
+        self.trk_list = []
+
+    def is_group(self):
+        return len(self.trk_list) > 1
+
+    def calc_model(self, model_factory):
+        df = pd.DataFrame([trk.model.to_record() for trk in self.trk_list])
+        base = df.iloc[0].copy()
+        mean = df.mean()
+        base[mean.index] = mean
+        model = model_factory.create_from_record(base)
+        for trk in self.trk_list:
+            trk.set_group_model(model)
+
+    def append(self, trk):
+        trk.set_group(self)
+        self.trk_list.append(trk)
+
 
 class MultiSensorScoreManagedTrack(BaseTrack):
     """ Multi Sensor LLR Track

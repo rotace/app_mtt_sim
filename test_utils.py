@@ -103,6 +103,20 @@ class TestUtils(unittest.TestCase):
         np.testing.assert_almost_equal(utils.swap_block_matrix(mat, 2), expected)
     
 
+    def test_calc_groups_by_distance_segmentation_method(self):
+        arg = [0,3,4,5,9]
+        expected = ([0,3,4,5,9],[1,2,2,2,3])
+        actual = utils.calc_groups_by_distance_segmentation_method(arg, thresh=2)
+        np.testing.assert_almost_equal(actual[0], expected[0])
+        np.testing.assert_almost_equal(actual[1], expected[1])
+
+        arg = [9,3,5,4,0]
+        expected = ([9,3,4,5,0],[1,2,2,2,3])
+        actual = utils.calc_groups_by_distance_segmentation_method(arg, thresh=2)
+        np.testing.assert_almost_equal(actual[0], expected[0])
+        np.testing.assert_almost_equal(actual[1], expected[1])
+
+
     def test_calc_best_assignment_by_auction(self):
         """Calculate Best Assignment by Auction Method
 
