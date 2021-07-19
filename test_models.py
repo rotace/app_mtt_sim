@@ -29,6 +29,22 @@ class TestModels(unittest.TestCase):
         np.testing.assert_equal(InheritBaseTarget._generate_id(), 2)
 
 
+    def test_ModelConversion(self):
+        x_type = models.ModelType.generate_model_type(crd_type=models.CoordType.CART,SD=2,RD=2)
+        y_type = models.ModelType.generate_model_type(crd_type=models.CoordType.CART,SD=2,RD=1)
+        x_expected = np.array([1,2,3,4])
+        P_expected = np.array([i for i in range(16)]).reshape((4,4))
+        P_expected = np.triu(P_expected) + np.triu(P_expected).T
+        F = np.array([i for i in range(16)]).reshape((4,4))
+        H = np.array([i for i in range( 8)]).reshape((2,4))
+        Q = np.array([i for i in range(16)]).reshape((4,4))
+        mdl = models.KalmanModel(x_expected, F, H, P_expected, Q, x_type=x_type, y_type=y_type, predict=False)
+        series = mdl.to_record()
+        x_actual,P_actual,_,_ = models.KalmanModel.from_record(series)
+
+        np.testing.assert_almost_equal(x_actual, x_expected)
+        np.testing.assert_almost_equal(P_actual, P_expected)
+
     def test_LinearKalmanModel(self):
         """Linear Kalman Filter
 
@@ -123,7 +139,7 @@ class TestModels(unittest.TestCase):
         mdl1 = mf.create(
             models.Obs(
                 y=np.array([1,0]),
-                R=np.zeros((1,1))+0.1,
+                R=np.zeros((2,2))+0.1,
                 sensor=sensors.BaseSensor()
             )
         )

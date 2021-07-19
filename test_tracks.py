@@ -158,6 +158,35 @@ class TestTracks(unittest.TestCase):
             plt.show()
 
 
+    def test_FormationTrack(self):
+
+        PD=0.7
+        PFD=1.e-3
+        NFC=4
+        NFA=1000
+
+        model_factory = models.SimpleModelFactory(
+            model = models.KalmanModel,
+            dT=1.0,
+            q=0.001
+        )
+
+        sensor = sensors.BaseSensor(
+            PD=PD,
+            VC=1.0,
+            PFA=1e-6,
+            BNT=0.03
+        )
+
+        # assign 1 track
+        obs = models.Obs(np.array([1.0, 2.0]), np.eye(2), sensor )
+        trk = tracks.FormationTrack(obs,model_factory.create(obs))
+
+        # assign 2 track
+        obs = models.Obs(np.array([3.0, 4.0]), np.eye(2), sensor )
+        trk = tracks.FormationTrack(obs,model_factory.create(obs))
+
+
     def test_TrackEvaluator(self):
 
         scan_time = 1.0

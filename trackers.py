@@ -1,5 +1,6 @@
 import copy
 import numpy as np
+import pandas as pd
 from scipy import integrate, interpolate
 import matplotlib.pyplot as plt
 import matplotlib.animation as ani
@@ -389,17 +390,24 @@ class FGT(BaseTracker):
         self.trk_list = [ trk for trk in self.trk_list if not trk.judge_deletion() ]
 
         # grouping indivisual track
+        [ trk.preprocess_for_grouping() for trk in self.trk_list ]
         if self.trk_list:
             A,G = utils.calc_groups_by_distance_segmentation_method(self.trk_list, thresh=10000.0)
 
             grp_dict={}
             for a,g in zip(A,G):
                 if g not in grp_dict:
-                    grp_dict[g] = tracks.FormationGroupTrack()
+                    grp_dict[g] = []
                 grp_dict[g].append(a)
 
-            for grp in grp_dict.values():
-                grp.calc_model(self.track_factory.model_factory)
+            for grp_list in grp_dict.values():
+                if len(grp_list)>1:
+                    df = pd.DataFrame([trk.model.to_record() for trk in grp_list])
+                    base = df.iloc[0].copy()
+                    mean = df.mean()
+                    base[mean.index] = mean
+                    model = self.track_factory.model_factory.create_from_record(base)
+                    [ trk.set_group_model(copy.deepcopy(model)) for trk in grp_list ]
 
         # update for next time (tracker, sensor, etc.)
         self._update()

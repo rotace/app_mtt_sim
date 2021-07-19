@@ -261,8 +261,9 @@ class Obs(BaseExporter):
     @classmethod
     def from_record(cls, series):
         assert isinstance(series, pd.Series), "series is invalid, actual:"  + str(type(series))
-        cov_type_str = [ cv for cv in series.index.values if cv[0] == "R" ]
-        val_type_str = list(set(series.index.values) &  {vt.name for vt in ValueType})
+        cov_type_str = [ cts for cts in series.index.values if len(cts)==3 and cts[0] == "R" ]
+        val_type_str = [ vts for vts in series.index.values if vts in [ vt.name for vt in ValueType ] ]
+        assert len(cov_type_str) == sum([ i+1 for i in range(len(val_type_str)) ])
         y = series[val_type_str].values
         r = series[cov_type_str].values
         R = np.zeros((len(y), len(y)))
@@ -272,7 +273,7 @@ class Obs(BaseExporter):
                 if i<=j:
                     R[i,j] = r[idx]
                     idx += 1
-        R = np.triu(R) + np.triu(R).T
+        R = np.triu(R) + np.triu(R).T - np.diag(R.diagonal())
         return cls(y=y, R=R)
 
 
@@ -297,6 +298,7 @@ class KalmanModel(BaseExporter):
         assert F.shape == (self.x_dim, self.x_dim), "F.shape invalid, actual:"+str(F.shape)
         assert P.shape == (self.x_dim, self.x_dim), "P.shape invalid, actual:"+str(P.shape)
         assert Q.shape == (self.x_dim, self.x_dim), "Q.shape invalid, actual:"+str(Q.shape)
+        assert np.array_equal(P, P.T), "P should be symmetric, actual:\n"+str(P)
 
         self.x = x
         self.F = F
@@ -322,8 +324,9 @@ class KalmanModel(BaseExporter):
 
     @classmethod
     def from_record(cls, series):
-        cov_type_str = [ cts for cts in series.index.values if cts[0] == "P" ]
+        cov_type_str = [ cts for cts in series.index.values if len(cts) == 3 and cts[0] == "P" ]
         val_type_str = [ vts for vts in series.index.values if vts in [ vt.name for vt in ValueType ] ]
+        assert len(cov_type_str) == sum([ i+1 for i in range(len(val_type_str)) ])
         crd_type = CoordType.from_string(series["CRD_TYPE"])
         val_type = [ ValueType.from_string(vt_str) for vt_str in val_type_str ]
         x = series[val_type_str].values
@@ -335,7 +338,7 @@ class KalmanModel(BaseExporter):
                 if i<=j:
                     P[i,j] = p[idx]
                     idx += 1
-        P = np.triu(P) + np.triu(P).T
+        P = np.triu(P) + np.triu(P).T - np.diag(P.diagonal())
         return (x, P, crd_type, val_type)
 
     def update(self, obs):
@@ -765,8 +768,8 @@ class BaseTarget(BaseExporter):
     @staticmethod
     def from_record(series):
         assert isinstance(series, pd.Series), "series is invalid, actual:" + str(type(series))
-        val_type_str = list(set(series.index.values) &  {vt.name for vt in ValueType})
-        val_type = [ vt  for vt_str in val_type_str for vt in ValueType if vt_str == vt.name ]
+        val_type_str = [ vts for vts in series.index.values if vts in [ vt.name for vt in ValueType ] ]
+        val_type = [ ValueType.from_string(vt_str) for vt_str in val_type_str ]
         mdl_type = ModelType(series["CRD_TYPE"], val_type, None, None)
         x = series[val_type_str].values
         return BaseTarget(x0=x, x_type=mdl_type)

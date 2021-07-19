@@ -305,7 +305,7 @@ def sample_FGT(is_fgt=True):
                 P0=np.diag([sigma_o**2, sigma_o**2, sigma_vx**2, sigma_vy**2])
             ),
             track_factory=tracks.BaseTrackFactory(
-                track=tracks.FormationIndivisualTrack
+                track=tracks.FormationTrack
             )
         )
     else:
@@ -320,7 +320,7 @@ def sample_FGT(is_fgt=True):
                 P0=np.diag([sigma_o**2, sigma_o**2, sigma_vx**2, sigma_vy**2])
             ),
             track_factory=tracks.BaseTrackFactory(
-                track=tracks.ScoreManagedTrack
+                track=tracks.SimpleManagedTrack
             )
         )
 
@@ -393,5 +393,8 @@ class Worker:
 if __name__ == '__main__':
     if (sys.flags.interactive != 1):
         worker = Worker()
-        # fire.Fire(worker)
-        sample_FGT()
+        fire.Fire(worker)
+
+        # for debug
+        # sample_FGT(is_fgt=True)
+        # sample_FGT(is_fgt=False)

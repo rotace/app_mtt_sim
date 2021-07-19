@@ -1,13 +1,10 @@
 import copy
-from warnings import catch_warnings
-import warnings
 import numpy as np
 from numpy.core.defchararray import mod
 import pandas as pd
 import matplotlib.pyplot as plt
 
 import models
-import sensors
 
 class BaseTrackFactory():
     """ Track Factory Base Class """
@@ -305,8 +302,8 @@ class PDATrack(BaseTrack):
 
 
 
-class FormationIndivisualTrack(ScoreManagedTrack):
-    """ Indivisual Track for Formation Group Tracking
+class FormationTrack(SimpleManagedTrack):
+    """ Formation Track for Formation Group Tracking
 
         ref) Radar Data Processing with Applications
                 10.5 Formation Group Tracking
@@ -316,7 +313,6 @@ class FormationIndivisualTrack(ScoreManagedTrack):
     """
     def __init__(self, obs, model_factory, **kwargs):
         super().__init__(obs, model_factory, **kwargs)
-        self.group=None
         self.group_model=None
 
     def __sub__(self, other):
@@ -326,9 +322,7 @@ class FormationIndivisualTrack(ScoreManagedTrack):
         return dx @ np.linalg.inv(P) @ dx
 
     def calc_match_price(self, obs):
-        assert self.group is not None
-
-        if self.group.is_group():
+        if self.is_group():
             dist, detS, M = self.group_model.norm_of_residual(obs)
             gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
             return gate - dist
@@ -336,20 +330,17 @@ class FormationIndivisualTrack(ScoreManagedTrack):
             return super().calc_match_price(obs)
 
     def get_gate(self, obs):
-        assert self.group is not None
-
-        if self.group.is_group():
+        if self.is_group():
             dist, detS, M = self.group_model.norm_of_residual(obs)
             gate = obs.sensor.calc_ellipsoidal_gate(detS, M)
             if self.param["gate"]:
                 gate = self.param["gate"]
         else:
             gate, dist = super().get_gate(obs)
-
         return (gate, dist)
 
-    def set_group(self, grp):
-        self.group=grp
+    def preprocess_for_grouping(self):
+        self.group_model=None
 
     def set_group_model(self, model):
         for i, obs in enumerate(reversed(self.obs_list)):
@@ -360,34 +351,8 @@ class FormationIndivisualTrack(ScoreManagedTrack):
                 self.group_model = model
                 break
 
-class FormationGroupTrack:
-    """ Group Track for Formation Group Tracking
-
-        ref) Radar Data Processing with Applications
-                10.5 Formation Group Tracking
-
-     * Use Kalman Filter
-     * Use Log Likelihood Ratio as Score
-    """
-    def __init__(self) -> None:
-        self.trk_list = []
-
     def is_group(self):
-        return len(self.trk_list) > 1
-
-    def calc_model(self, model_factory):
-        df = pd.DataFrame([trk.model.to_record() for trk in self.trk_list])
-        base = df.iloc[0].copy()
-        mean = df.mean()
-        base[mean.index] = mean
-        model = model_factory.create_from_record(base)
-        for trk in self.trk_list:
-            trk.set_group_model(model)
-
-    def append(self, trk):
-        trk.set_group(self)
-        self.trk_list.append(trk)
-
+        return self.group_model is not None
 
 class MultiSensorScoreManagedTrack(BaseTrack):
     """ Multi Sensor LLR Track
